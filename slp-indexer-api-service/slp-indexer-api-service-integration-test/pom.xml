@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+		 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<packaging>jar</packaging>
+
+	<parent>
+		<groupId>com.bitcoin.indexer</groupId>
+		<artifactId>slp-indexer-api-service</artifactId>
+		<version>0.0.1-SNAPSHOT</version>
+	</parent>
+
+	<artifactId>slp-indexer-api-service-integration-test</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+
+	<dependencies>
+		<dependency>
+			<groupId>com.bitcoin.indexer</groupId>
+			<artifactId>slp-indexer-api-service-app</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.bitcoin.indexer</groupId>
+			<artifactId>slp-indexer-api-service-domain</artifactId>
+		</dependency>
+	</dependencies>
+</project>
