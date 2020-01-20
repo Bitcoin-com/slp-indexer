@@ -26,8 +26,8 @@ The service consist of one writer and several readers services. We use MongoDb a
 the fields that we need to query. The reason we have split readers and writers into separate services is that we want to have the ability
 to scale our readers separately.
 
-It is not recommended to have more than one reader as they will read the same data from the blockchain and then
-insert the same items creating a heavier load on your MongoDb. It is possible to run more writers if you really
+It is not recommended to have more than one writers as they will read the same data from the blockchain and then
+insert the same items creating a heavier load on your MongoDb. It is possible to run more reader if you really
 need redundancy in case of failure.
 
 You can deploy as many readers as you want and we recommend at least 2 readers for redundancy. Deploying more readers
