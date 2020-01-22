@@ -66,9 +66,10 @@
 
 
         <dependency>
-            <groupId>cash.bitcoinj</groupId>
+            <groupId>org.bitcoinj</groupId>
             <artifactId>bitcoinj-core</artifactId>
             <version>0.15</version>
+
             <exclusions>
                 <exclusion>
                     <groupId>com.google.protobuf</groupId>
