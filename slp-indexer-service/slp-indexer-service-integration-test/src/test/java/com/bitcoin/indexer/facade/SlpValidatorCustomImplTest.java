@@ -19,7 +19,6 @@ import com.bitcoin.indexer.FakeBlockRepo;
 import com.bitcoin.indexer.FakeInMemoryDetails;
 import com.bitcoin.indexer.FakeUtxoRepository;
 import com.bitcoin.indexer.blockchain.domain.Address;
-import com.bitcoin.indexer.blockchain.domain.AddressTransaction;
 import com.bitcoin.indexer.blockchain.domain.IndexerTransaction;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpOpReturn;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenDetails;
@@ -72,12 +71,7 @@ public class SlpValidatorCustomImplTest {
 		}
 
 		@Override
-		public Single<List<IndexerTransaction>> fetchTransactionByAddressWithUtxoSpendingState(String address, Coin coin) {
-			return null;
-		}
-
-		@Override
-		public Single<List<AddressTransaction>> fetchAddressTransaction(Address address, Coin coin) {
+		public Single<List<IndexerTransaction>> fetchTransactions(Address address, Coin coin) {
 			return Single.just(List.of());
 		}
 
