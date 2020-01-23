@@ -107,7 +107,8 @@ Change these settings in the `slp-indexer-service-app/src/main/resources/applica
 to what is applicable for you
 
 `bitcoinj.max.connection=MAX_AVAILABLE_NODES` This settings is for how many nodes you want to connect to  
-`bitcoinj.awaiting.peer=PEERS_NEEDED_FOR_STARTUP` How many connected peers is needed for the service to start  
+`bitcoinj.awaiting.peer=PEERS_NEEDED_FOR_STARTUP` How many connected peers is needed for the service to start 
+`bitcoinj.peers.bch=127.0.0.1:8333,127.0.0.2:8333` Point to the location of your nodes if you don't want to use dns.discovery
 `dns.discovery=DNS_TO_YOUR_NODES` If you want to use DNS seeding then specify your address here  
 `spring.data.mongodb.uri=CONNECTIONSTRING` MongoDb connectionsString  
 `spring.data.mongodb.database=slpblockchain` MongoDb databasename
