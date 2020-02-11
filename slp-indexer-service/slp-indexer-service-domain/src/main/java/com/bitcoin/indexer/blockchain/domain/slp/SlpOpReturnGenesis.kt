@@ -25,15 +25,53 @@ data class SlpOpReturnGenesis(
     companion object {
 
         fun create(tokenType: SlpTokenType, tokenId: SlpTokenId, chunks: List<ByteArray?>): SlpOpReturnGenesis? {
-            val ticker = chunks[4]?.let { String(it) } ?: ""
-            val name = chunks[5]?.let { String(it) } ?: ""
-            val decimals = chunks[8]?.let { ByteUtils.toInt(it) } ?: return null
-            val batonByte: Byte? = chunks[9]?.let { it.getOrNull(0) }
+            validateChunkSize(chunks)
+            val ticker = chunks[4]?.let { String(it).replace(Char.MIN_VALUE, ' ') } ?: ""
+            val name = chunks[5]?.let { String(it).replace(Char.MIN_VALUE, ' ') } ?: ""
+            val decimals = chunks[8]?.let { ByteUtils.toInt(validateDecimals(it)) } ?: return null
+            val batonByte: Byte? = validateBatonVout(chunks[9]?.getOrNull(0))
             val mintedAmount = chunks[10]?.let { it }.let { UnsignedBigInteger.parseUnsigned(BigInteger(it)) } ?: return null
-            val documentUri = chunks[6]?.let { String(it) } ?: ""
+            val documentUri = chunks[6]?.let { String(it).replace(Char.MIN_VALUE, '0') } ?: ""
+            val documentHash = chunks[7]?.let { String(validateDocumentHash(it)).replace(Char.MIN_VALUE, '0') } ?: ""
             return SlpOpReturnGenesis(tokenType, tokenId, ticker, name, decimals, batonByte?.toInt(), mintedAmount, documentUri);
         }
+
+        private fun validateDecimals(chunk: ByteArray): ByteArray {
+            if (chunk.isEmpty() || chunk.size > 1) {
+                throw RuntimeException("Invalid decimals")
+            }
+            if (ByteUtils.toInt(chunk) > 9) {
+                throw RuntimeException("Invalid decimals")
+            }
+
+            return chunk;
+        }
+
+        private fun validateBatonVout(batonByte: Byte?): Byte? {
+            if (batonByte != null) {
+                if (batonByte.toInt() == 0 || batonByte.toInt() == 1) {
+                    throw RuntimeException("Invalid baton")
+                }
+            }
+            return batonByte
+        }
+
+        private fun validateDocumentHash(chunk: ByteArray): ByteArray {
+            if (chunk.size == 32 || chunk.isEmpty()) {
+                return chunk
+            }
+            throw RuntimeException("Invalid documentHash")
+        }
+
+        private fun validateChunkSize(chunks: List<ByteArray?>) {
+            if (chunks.size > 11) {
+                throw RuntimeException("Invalid chunk size")
+            }
+        }
     }
+
+
+
 
     override fun toString(): String {
         return "SlpOpReturnGenesis(tokenType=$tokenType, tokenId=$tokenId, ticker='$ticker', name='$name', decimals=$decimals, batonVout=$batonVout, mintedAmount=$mintedAmount, documentUri='$documentUri')"

@@ -34,6 +34,8 @@ public class SLPDBScriptsParserTest {
 		SlpOpReturn slpOpReturn = SlpOpReturn.Companion.tryParse("6448381f9649ecacd8c30189cfbfee71a91b6b9738ea494fe33f8b8b51cbfca0", script);
 		if (code == null) {
 			assertThat(slpOpReturn, Matchers.notNullValue());
+		} else {
+			assertThat(slpOpReturn, Matchers.nullValue());
 		}
 
 	}

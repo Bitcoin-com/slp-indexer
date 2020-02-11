@@ -30,7 +30,7 @@ public class SlpTokenType {
 
 		int key = ByteUtils.INSTANCE.toInt(bytes);
 		if (!currentKnownTokens.containsKey(key)) {
-			return Optional.of(new SlpTokenType("UNKNOWN", bytes));
+			throw new RuntimeException("Invalid token type");
 		}
 		return Optional.of(new SlpTokenType(currentKnownTokens.get(key), bytes));
 	}
