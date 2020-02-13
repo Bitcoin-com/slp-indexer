@@ -8,11 +8,11 @@
 	<parent>
 		<groupId>com.bitcoin.indexer</groupId>
 		<artifactId>slp-indexer-service</artifactId>
-		<version>0.0.2-SNAPSHOT</version>
+		<version>0.0.2</version>
 	</parent>
 
 	<artifactId>slp-indexer-service-app</artifactId>
-	<version>0.0.2-SNAPSHOT</version>
+	<version>0.0.2</version>
 
 	<dependencies>
 		<dependency>
