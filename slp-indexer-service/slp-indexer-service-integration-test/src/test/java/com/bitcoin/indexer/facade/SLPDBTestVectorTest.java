@@ -114,7 +114,7 @@ public class SLPDBTestVectorTest {
 		if (shouldValid) {
 			assertThat(description, tx.getSlpValid().get().getValid(), Matchers.is(SlpValid.Valid.VALID));
 		} else {
-			assertThat(description, tx.getSlpValid().get().getValid(), Matchers.is(SlpValid.Valid.INVALID));
+			assertThat(description, tx.getSlpValid().get().getValid(), Matchers.anyOf(Matchers.is(SlpValid.Valid.INVALID), Matchers.is(SlpValid.Valid.UNKNOWN)));
 		}
 	}
 

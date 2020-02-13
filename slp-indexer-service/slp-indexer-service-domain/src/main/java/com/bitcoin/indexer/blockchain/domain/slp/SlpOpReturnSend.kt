@@ -25,8 +25,10 @@ class SlpOpReturnSend(tokenType: SlpTokenType, tokenId: SlpTokenId, val quantiti
             if (chunks.size > MAX_CHUNKS_SEND) {
                 return null
             }
+            validateChunks(chunks)
             val quantities = chunks
                     .filter { chunk -> chunk?.size == 8 }
+                    //.filterIndexed {index, chunk -> filterInvalidBytes(chunk, index)}
                     .map { UnsignedBigInteger.parseUnsigned(BigInteger(it!!)) }
                     .map { it }
 
@@ -34,6 +36,14 @@ class SlpOpReturnSend(tokenType: SlpTokenType, tokenId: SlpTokenId, val quantiti
                 SlpOpReturnSend(tokenType, tokenId, quantities)
             } catch (e: IllegalArgumentException) {
                 null
+            }
+        }
+
+        private fun validateChunks(chunks: List<ByteArray?>) {
+            chunks.drop(5).forEach {
+                if (it?.size != 8) {
+                    throw RuntimeException("ERROR")
+                }
             }
         }
     }

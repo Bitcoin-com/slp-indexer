@@ -5,7 +5,7 @@
 
 	<groupId>com.bitcoin.indexer</groupId>
 	<artifactId>slp-indexer-service</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>0.0.2-SNAPSHOT</version>
 	<packaging>pom</packaging>
 
 	<name>WRITER</name>
@@ -45,7 +45,6 @@
 		<spring-boot-admin.version>2.1.3</spring-boot-admin.version>
 		<spring.cloud.netflix.version>2.1.0.RELEASE</spring.cloud.netflix.version>
 		<spring.restdocs.version>2.0.3.RELEASE</spring.restdocs.version>
-		<router.lib.version>0.0.1-SNAPSHOT</router.lib.version>
 		<spring.auto.restdocs.version>2.0.4</spring.auto.restdocs.version>
 		<spring.data.cassandra.version>2.1.4.RELEASE</spring.data.cassandra.version>
 		<!-- TEST -->
