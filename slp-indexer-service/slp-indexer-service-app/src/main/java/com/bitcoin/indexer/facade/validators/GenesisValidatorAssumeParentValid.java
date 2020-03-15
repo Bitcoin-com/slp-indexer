@@ -67,6 +67,14 @@ public class GenesisValidatorAssumeParentValid implements SlpValidatorFacade {
 				if (onlySlpUtxo(utxos)
 						.anyMatch(SlpUtxo::isGenesis)) {
 
+					if (utxoFromPrev.getSlpUtxo().get().getTokenType().equals(SlpTokenType.NFT1_GENESIS.getType()) && inputs.size() > 1) {
+						if (tokenType.equals(SlpTokenType.NFT1_CHILD.getType())) {
+							if (onlySlpUtxo(utxos).anyMatch(slpUtxo -> slpUtxo.getAmount().compareTo(BigDecimal.ONE) == 0)) {
+								return SlpValid.invalid("NFT1 parent GENESIS tx, the NFT1 child GENESIS tx w/ qty=1 should be SLP-invalid");
+							}
+						}
+					}
+
 					if (onlySlpUtxo(utxos)
 							.map(SlpUtxo::getAmount).reduce(BigDecimal::add).orElse(BigDecimal.ZERO).equals(BigDecimal.ONE)) {
 						return SlpValid.valid("prev is genesis and current has amount == 1");
