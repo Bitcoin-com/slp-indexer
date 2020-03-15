@@ -9,9 +9,9 @@ public class SlpTokenType {
 	private final String type;
 	private final byte[] bytes;
 
-	public static final SlpTokenType PERMISSIONLESS = new SlpTokenType("PERMISSIONLESS", String.valueOf(1).getBytes());
-	public static final SlpTokenType NFT1_GENESIS = new SlpTokenType("NFT1_GENESIS", String.valueOf(129).getBytes());
-	public static final SlpTokenType NFT1_CHILD = new SlpTokenType("NFT1_CHILD", String.valueOf(65).getBytes());
+	public static final SlpTokenType PERMISSIONLESS = new SlpTokenType("PERMISSIONLESS", new byte[]{0x01});
+	public static final SlpTokenType NFT1_GENESIS = new SlpTokenType("NFT1_GENESIS", new byte[]{ (byte) 0x81 });
+	public static final SlpTokenType NFT1_CHILD = new SlpTokenType("NFT1_CHILD", new byte[]{0x41});
 
 	private static final Map<Integer, String> currentKnownTokens =
 			Map.of(1, "PERMISSIONLESS",
