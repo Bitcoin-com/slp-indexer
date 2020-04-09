@@ -5,7 +5,7 @@
 
 	<groupId>com.bitcoin.indexer</groupId>
 	<artifactId>slp-indexer-api-service</artifactId>
-	<version>0.0.4</version>
+	<version>0.0.5-SNAPSHOT</version>
 	<packaging>pom</packaging>
 
 	<name>API</name>
@@ -36,17 +36,17 @@
 			<dependency>
 				<groupId>com.bitcoin.indexer</groupId>
 				<artifactId>slp-indexer-api-service-domain</artifactId>
-				<version>0.0.4</version>
+				<version>0.0.5-SNAPSHOT</version>
 			</dependency>
 			<dependency>
 				<groupId>com.bitcoin.indexer</groupId>
 				<artifactId>slp-indexer-api-service-app</artifactId>
-				<version>0.0.4</version>
+				<version>0.0.5-SNAPSHOT</version>
 			</dependency>
 			<dependency>
 				<groupId>com.bitcoin.indexer</groupId>
 				<artifactId>slp-indexer-api-service-integration-test</artifactId>
-				<version>0.0.4</version>
+				<version>0.0.5-SNAPSHOT</version>
 			</dependency>
 
 			<dependency>
