@@ -7,7 +7,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -79,7 +78,6 @@ public class BitcoinJListener implements PeerDataEventListener,
 	private BitcoinJConverters converters;
 	private Boolean isFullMode;
 	private UtxoRepository utxoRepository;
-	private ExecutorService executors = Executors.newFixedThreadPool(10);
 
 	private final Timer transactionHandlerTimer = Metrics.timer("transaction_handler_timer_listener");
 
@@ -105,17 +103,6 @@ public class BitcoinJListener implements PeerDataEventListener,
 		this.isFullMode = isFullMode;
 		this.utxoRepository = utxoRepository;
 		this.transactionFlowable = transactionPublishSubject.toFlowable(BackpressureStrategy.BUFFER).publish().autoConnect();
-		Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(() -> {
-			while (true) {
-				Pair<Integer, Transaction> pair = slpValidationRetryQueue.poll();
-				if (pair == null) {
-					return;
-				}
-				logger.info("Running slpValidation again for txId={}", pair.getSecond().getHashAsString());
-				onTransaction(pair.getSecond(), pair.getFirst());
-			}
-
-		}, 10000, 1000, TimeUnit.MILLISECONDS);
 	}
 
 	@Override
@@ -144,7 +131,7 @@ public class BitcoinJListener implements PeerDataEventListener,
 		onTransaction(t, Long.valueOf(peer.getBestHeight()).intValue());
 	}
 
-	private void onTransaction(Transaction t, int height) {
+	public void onTransaction(Transaction t, int height) {
 		if (transactionCache.getIfPresent(t.getHashAsString()) != null) {
 			return;
 		}
@@ -169,13 +156,17 @@ public class BitcoinJListener implements PeerDataEventListener,
 	}
 
 	public void consumeTransactions(List<com.bitcoin.indexer.blockchain.domain.Transaction> transactions) {
-		List<IndexerTransaction> indexerTransactions = transactions.stream()
-				.map(tx -> createIndexerTransaction(tx, false))
-				.filter(Objects::nonNull)
-				.collect(Collectors.toList());
+		List<IndexerTransaction> indexerTransactions = createIndexerTransaction(transactions, false);
+
+		logger.trace("Indexer txs={} ", indexerTransactions.size());
 
 		if (!indexerTransactions.isEmpty()) {
-			transactionHandler.handleTransaction(indexerTransactions).toList().blockingGet();
+			List<IndexerTransaction> validated = transactionHandler.handleTransaction(indexerTransactions).toList().blockingGet();
+			SystemTimer systemTimer = SystemTimer.create();
+			systemTimer.start();
+			utxoRepository.updateUtxoValidationStatus(validated.stream().map(IndexerTransaction::getTransaction).collect(Collectors.toList()), Coin.BCH)
+					.blockingGet();
+			logger.info("Completed utxo validation in time={}", systemTimer.getMsSinceStart());
 		}
 	}
 
@@ -242,56 +233,72 @@ public class BitcoinJListener implements PeerDataEventListener,
 		}
 	}
 
-	private IndexerTransaction createIndexerTransaction(com.bitcoin.indexer.blockchain.domain.Transaction transaction, boolean isFullMode) {
-		if (isFullMode) {
-			return IndexerTransaction.create(transaction);
-		}
-		//Filter out SLP only txs
-		if (!transaction.isSlp()) {
-			List<Input> inputs = transaction.getInputs();
-			List<Utxo> utxos = utxoRepository.fetchUtxo(inputs, coin).blockingGet();
-			if (!utxos.isEmpty()) {
-				Map<String, Utxo> txIdIndexToUtxo = utxos.stream().collect(Collectors.toMap(e -> e.getTxId() + ":" + e.getIndex(), v -> v));
-				List<Input> inputsWithValue = inputs.stream()
-						.filter(e -> txIdIndexToUtxo.containsKey(e.getTxId() + ":" + e.getIndex()))
-						.map(e -> {
-							Utxo utxo = txIdIndexToUtxo.get(e.getTxId() + ":" + e.getIndex());
-							return Input.knownValue(
-									e.getAddress(),
-									utxo.getAmount(),
-									e.getIndex(),
-									e.getTxId(),
-									utxo.getSlpUtxo().orElse(null),
-									e.isCoinbase(),
-									e.getSequence()
-							);
-						}).collect(Collectors.toList());
+	private List<IndexerTransaction> createIndexerTransaction(List<com.bitcoin.indexer.blockchain.domain.Transaction> transactions, boolean isFullMode) {
 
-				return IndexerTransaction.create(com.bitcoin.indexer.blockchain.domain.Transaction.create(
-						transaction.getTxId(),
-						transaction.getOutputs(),
-						inputsWithValue,
-						transaction.isConfirmed(),
-						transaction.getFees(),
-						transaction.getTime(),
-						transaction.isFromBlock(),
-						transaction.getBlockHash().orElse(null),
-						transaction.getBlockHeight().orElse(null),
-						transaction.getSlpOpReturn(),
-						transaction.getSlpValid().orElse(null),
-						transaction.getRawHex(),
-						transaction.getVersion(),
-						transaction.getLocktime(),
-						transaction.getSize(),
-						transaction.getBlockTime().orElse(null))
-				);
-			}
-			return null;
+		List<Input> inputs = transactions.stream()
+				.filter(e -> !e.isSlp())
+				.flatMap(e -> e.getInputs().stream()).collect(Collectors.toList());
+
+		SystemTimer systemTimer = SystemTimer.create();
+		systemTimer.start();
+		List<Utxo> utxoList = List.of();
+		if (!inputs.isEmpty()) {
+			utxoList = utxoRepository.fetchUtxo(inputs, coin).blockingGet();
+			logger.trace("Completed utxos={} fetch={}", utxoList.size(), systemTimer.getMsSinceStart());
 		}
-		return IndexerTransaction.create(transaction);
+
+		List<IndexerTransaction> confirmedSlps = transactions.stream()
+				.filter(com.bitcoin.indexer.blockchain.domain.Transaction::isSlp)
+				.map(IndexerTransaction::create)
+				.collect(Collectors.toList());
+		if (utxoList.isEmpty() && confirmedSlps.isEmpty()) {
+			return List.of();
+		}
+
+		Map<String, Utxo> txIdIndexToUtxo = utxoList.stream().collect(Collectors.toMap(e -> e.getTxId() + ":" + e.getIndex(), v -> v));
+		Map<String, List<Input>> inputsWithValue = inputs.stream()
+				.filter(e -> txIdIndexToUtxo.containsKey(e.getTxId() + ":" + e.getIndex()))
+				.map(e -> {
+					Utxo utxo = txIdIndexToUtxo.get(e.getTxId() + ":" + e.getIndex());
+					return Input.knownValue(
+							e.getAddress(),
+							utxo.getAmount(),
+							e.getIndex(),
+							e.getTxId(),
+							utxo.getSlpUtxo().orElse(null),
+							e.isCoinbase(),
+							e.getSequence()
+					);
+				}).collect(Collectors.groupingBy(Input::getTxId));
+
+		List<IndexerTransaction> mightIncludeSlp = transactions.stream()
+				.filter(transaction -> inputsWithValue.containsKey(transaction.getTxId()))
+				.map(transaction -> {
+					return IndexerTransaction.create(com.bitcoin.indexer.blockchain.domain.Transaction.create(
+							transaction.getTxId(),
+							transaction.getOutputs(),
+							inputsWithValue.get(transaction.getTxId()),
+							transaction.isConfirmed(),
+							transaction.getFees(),
+							transaction.getTime(),
+							transaction.isFromBlock(),
+							transaction.getBlockHash().orElse(null),
+							transaction.getBlockHeight().orElse(null),
+							transaction.getSlpOpReturn(),
+							transaction.getSlpValid().orElse(null),
+							transaction.getRawHex(),
+							transaction.getVersion(),
+							transaction.getLocktime(),
+							transaction.getSize(),
+							transaction.getBlockTime().orElse(null))
+					);
+				}).collect(Collectors.toList());
+		confirmedSlps.addAll(mightIncludeSlp);
+		return confirmedSlps;
 	}
 
 	public Flowable<com.bitcoin.indexer.blockchain.domain.Transaction> getTransactionFlowable() {
 		return transactionFlowable;
 	}
+
 }

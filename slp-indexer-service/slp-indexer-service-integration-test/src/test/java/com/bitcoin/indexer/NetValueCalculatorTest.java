@@ -37,7 +37,8 @@ public class NetValueCalculatorTest {
 				false,
 				Instant.ofEpochMilli(10),
 				null,
-				false
+				false,
+				null
 		);
 
 		Input first = Input.unknownValue(Address.create("132aSc15WmoPwtMbqRVzouZKNnjWL1YTVb"),

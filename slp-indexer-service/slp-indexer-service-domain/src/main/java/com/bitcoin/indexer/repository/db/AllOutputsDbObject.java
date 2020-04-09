@@ -15,6 +15,7 @@ import com.bitcoin.indexer.blockchain.domain.Utxo;
 import com.bitcoin.indexer.blockchain.domain.slp.Script;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenId;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpUtxo;
+import com.bitcoin.indexer.blockchain.domain.slp.SlpValid;
 import com.bitcoin.indexer.core.Coin;
 
 @Document(collection = "allOutputs")
@@ -46,6 +47,8 @@ public class AllOutputsDbObject implements Serializable {
 
 	private SlpUtxoType slpUtxoType;
 
+	private Integer confirmedHeight;
+
 	public AllOutputsDbObject(String txId,
 			int index,
 			String scriptPubKey,
@@ -56,7 +59,8 @@ public class AllOutputsDbObject implements Serializable {
 			boolean confirmed,
 			boolean isSpent,
 			String coin,
-			SlpUtxoType slpUtxoType) {
+			SlpUtxoType slpUtxoType,
+			Integer confirmedHeight) {
 		this.id = keyParser(txId, index);
 		this.txId = txId;
 		this.index = index;
@@ -69,6 +73,7 @@ public class AllOutputsDbObject implements Serializable {
 		this.isSpent = isSpent;
 		this.coin = coin;
 		this.slpUtxoType = slpUtxoType;
+		this.confirmedHeight = confirmedHeight;
 	}
 
 	public AllOutputsDbObject() {
@@ -96,8 +101,10 @@ public class AllOutputsDbObject implements Serializable {
 						u.getAmount().toString(),
 						u.hasBaton(),
 						u.getTokenTicker(),
-						u.getSlpTokenName()))
-						.orElse(null));
+						u.getSlpTokenName(), SlpValidDbType.fromDomain(u.getParentTransactionValid()),
+						u.getTokenTypeHex()))
+						.orElse(null),
+				utxo.getConfirmedHeight().orElse(null));
 	}
 
 	public Utxo toDomain() {
@@ -115,8 +122,11 @@ public class AllOutputsDbObject implements Serializable {
 						e.getTokenTicker(),
 						e.getTokenTransactionType(),
 						e.getTokenName(),
-						e.getTokenType())).orElse(null),
-				new Script(Hex.decode(scriptPubKey)).isOpReturn());
+						e.getTokenType(),
+						e.getTokenTypeHex(),
+						SlpValid.create(e.getParentTransactionValid().getReason(), e.getParentTransactionValid().getValid()))).orElse(null),
+				new Script(Hex.decode(scriptPubKey)).isOpReturn(),
+				Optional.ofNullable(confirmedHeight).orElse(null));
 	}
 
 	public Update toUpdate() {
@@ -131,8 +141,17 @@ public class AllOutputsDbObject implements Serializable {
 		update.set("spendingTimestamp", spendingTimestamp);
 		update.set("confirmed", confirmed);
 		update.set("isSpent", isSpent);
+		update.set("confirmedHeight", confirmedHeight);
 		if (slpUtxoType != null) {
 			update.set("slpUtxoType", slpUtxoType.toDocument());
+		}
+		return update;
+	}
+
+	public Update partialUpdate() {
+		Update update = new Update();
+		if (slpUtxoType != null) {
+			update.set("slpUtxoType.parentTransactionValid", slpUtxoType.getParentTransactionValid().toDocument());
 		}
 		return update;
 	}
@@ -183,6 +202,10 @@ public class AllOutputsDbObject implements Serializable {
 
 	public SlpUtxoType getSlpUtxoType() {
 		return slpUtxoType;
+	}
+
+	public Integer getConfirmedHeight() {
+		return confirmedHeight;
 	}
 
 	public static String keyParser(String txId, int index) {

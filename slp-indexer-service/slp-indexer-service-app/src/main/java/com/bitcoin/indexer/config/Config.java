@@ -127,12 +127,14 @@ public class Config {
 	public TransactionHandler transactionHandler(InputHandler inputHandler,
 			UtxoHandler utxoHandler,
 			TransactionRepository transactionRepository,
-			SlpValidatorFacade slpValidatorFacade) {
+			SlpValidatorFacade slpValidatorFacade,
+			UtxoRepository utxoRepository) {
 		return new TransactionHandlerSlpImpl(
 				inputHandler,
 				utxoHandler,
 				transactionRepository,
-				slpValidatorFacade);
+				slpValidatorFacade,
+				utxoRepository);
 	}
 
 	@Bean

@@ -50,18 +50,6 @@
 		</dependency>
 
 		<dependency>
-			<groupId>org.springframework.cloud</groupId>
-			<artifactId>spring-cloud-aws-core</artifactId>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework.cloud</groupId>
-			<artifactId>spring-cloud-aws-messaging</artifactId>
-		</dependency>
-
-
-
-		<dependency>
 			<!-- Added for bootstrap.yml to be loaded, some strange conflict with cloud auto configure.
 			   Does not work putting it in spring-app either.
 				For the apps using the Eureka cloud starter this is not needed

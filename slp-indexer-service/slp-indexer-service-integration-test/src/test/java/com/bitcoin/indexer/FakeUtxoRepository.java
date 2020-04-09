@@ -10,9 +10,12 @@ import org.springframework.data.util.Pair;
 
 import com.bitcoin.indexer.blockchain.domain.Address;
 import com.bitcoin.indexer.blockchain.domain.Input;
+import com.bitcoin.indexer.blockchain.domain.Transaction;
 import com.bitcoin.indexer.blockchain.domain.Utxo;
-import com.bitcoin.indexer.core.Coin;
+import com.bitcoin.indexer.blockchain.domain.UtxoMinimalData;
+import com.bitcoin.indexer.blockchain.domain.slp.SlpValid.Valid;
 import com.bitcoin.indexer.repository.UtxoRepository;
+import com.bitcoin.indexer.core.Coin;
 
 import io.reactivex.Maybe;
 import io.reactivex.Single;
@@ -21,12 +24,12 @@ public class FakeUtxoRepository implements UtxoRepository {
 	private final Map<String, Utxo> map = new HashMap<>();
 
 	@Override
-	public Single<List<Utxo>> fetchUtxosFromAddress(Address address, Coin coin, boolean useCache) {
+	public Single<List<Utxo>> fetchUtxosFromAddress(Address address, Coin coin, boolean useCache, Valid parentValid) {
 		return null;
 	}
 
 	@Override
-	public Single<List<Utxo>> fetchSlpUtxosForAddress(Address address, Coin coin, boolean useCache) {
+	public Single<List<Utxo>> fetchSlpUtxosForAddress(Address address, Coin coin, boolean useCache, Valid parentValid) {
 		return null;
 	}
 
@@ -41,8 +44,13 @@ public class FakeUtxoRepository implements UtxoRepository {
 	}
 
 	@Override
-	public Single<List<Utxo>> fetchUtxosWithTokenId(List<String> tokenIds, boolean isSpent) {
+	public Single<List<Utxo>> fetchUtxosWithTokenId(List<String> tokenIds, boolean isSpent, Valid parentValid) {
 		return Single.just(new ArrayList<>(map.values()));
+	}
+
+	@Override
+	public Single<List<UtxoMinimalData>> fetchMinimalUtxoData(List<String> tokenIds, boolean isSpent, Valid parentValidation) {
+		return null;
 	}
 
 	@Override
@@ -80,6 +88,11 @@ public class FakeUtxoRepository implements UtxoRepository {
 
 	@Override
 	public Single<List<Utxo>> removeUtxo(List<Utxo> utxos, Coin coin) {
+		return null;
+	}
+
+	@Override
+	public Single<List<Transaction>> updateUtxoValidationStatus(List<Transaction> txs, Coin coin) {
 		return null;
 	}
 

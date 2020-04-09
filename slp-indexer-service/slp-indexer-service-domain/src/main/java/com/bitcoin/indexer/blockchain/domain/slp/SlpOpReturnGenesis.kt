@@ -8,7 +8,7 @@ import java.math.BigInteger
  *
  * @author akibabu
  */
-data class SlpOpReturnGenesis(
+class SlpOpReturnGenesis(
         override val tokenType: SlpTokenType,
         override val tokenId: SlpTokenId,
         val ticker: String,

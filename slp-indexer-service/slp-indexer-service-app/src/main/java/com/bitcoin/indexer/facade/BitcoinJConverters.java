@@ -70,7 +70,7 @@ public class BitcoinJConverters {
 			Instant blockTime) {
 		List<Input> inputs = getInputs(transaction, networkParameters, height);
 
-		List<Utxo> utxos = getUtxos(transaction, networkParameters, fromBlock, timestamp);
+		List<Utxo> utxos = getUtxos(transaction, networkParameters, fromBlock, timestamp, height);
 
 		List<SlpOpReturn> slpOpReturns = getOpReturn(transaction);
 
@@ -78,10 +78,10 @@ public class BitcoinJConverters {
 		if (!slpOpReturns.isEmpty()) {
 			SlpOpReturn slpOpReturn = slpOpReturns.get(0);
 			try {
-				utxos = getSlpUtxos(transaction, utxos, slpOpReturn);
+				utxos = getSlpUtxos(transaction, utxos, slpOpReturn, height, fromBlock);
 			} catch (Exception e) {
 				logger.error("Could not parse slp txId={}", transaction.getHashAsString());
-				throw new RuntimeException(e);
+				throw new RuntimeException("Transaction with error txId" + transaction.getHashAsString(), e);
 			}
 		}
 
@@ -121,13 +121,15 @@ public class BitcoinJConverters {
 				data.length);
 	}
 
-	public List<Utxo> getSlpUtxos(Transaction transaction, List<Utxo> utxos, SlpOpReturn slpOpReturn) {
-		SlpTokenDetails slpTokenDetails = getSlpTokenDetails(slpOpReturn).orElseGet(() -> {
+	public List<Utxo> getSlpUtxos(Transaction transaction, List<Utxo> utxos, SlpOpReturn slpOpReturn, Integer height, boolean fromBlock) {
+		SlpTokenDetails slpTokenDetails = getSlpTokenDetails(slpOpReturn, height).orElseGet(() -> {
 			logger.info("We should have all slptokenDetails for a valid tx id={}", transaction.getHashAsString());
 			return new SlpTokenDetails(slpOpReturn.getTokenId(), "", "", 0, "", null);
 		});
-		utxos = SlpUtxoParser.slpParsedUtxo(slpOpReturn, utxos, slpTokenDetails);
-		return utxos;
+		if (fromBlock) {
+			return SlpUtxoParser.slpParsedUtxo(slpOpReturn, utxos, slpTokenDetails, height);
+		}
+		return SlpUtxoParser.slpParsedUtxo(slpOpReturn, utxos, slpTokenDetails, null);
 	}
 
 	public static List<SlpOpReturn> getOpReturn(Transaction transaction) {
@@ -154,35 +156,42 @@ public class BitcoinJConverters {
 				.collect(Collectors.toList());
 	}
 
-	public static List<Utxo> getUtxos(Transaction transaction, NetworkParameters networkParameters, boolean fromBlock, Instant timestamp) {
+	public static List<Utxo> getUtxos(Transaction transaction, NetworkParameters networkParameters, boolean fromBlock, Instant timestamp, Integer height) {
 		return transaction.getOutputs()
 				.stream()
 				.map(output -> {
 					Address address = getAddress(networkParameters, output, transaction.getHashAsString());
-					return getUtxo(transaction, fromBlock, output, address, timestamp);
+					return getUtxo(transaction, fromBlock, output, address, timestamp, height);
 				})
 				.collect(Collectors.toList());
 	}
 
-	private Optional<SlpTokenDetails> getSlpTokenDetails(SlpOpReturn slpOpReturn) {
+	private Optional<SlpTokenDetails> getSlpTokenDetails(SlpOpReturn slpOpReturn, Integer currentBlock) {
 		if (SlpUtxoParser.isGenesis(slpOpReturn)) {
 			SlpOpReturnGenesis genesis = (SlpOpReturnGenesis) slpOpReturn;
-			return Optional.of(slpDetailsRepository.saveSlpTokenDetails(genesis.getToDetails()).blockingGet());
+			return Optional.ofNullable(slpDetailsRepository.saveSlpTokenDetails(genesis.getToDetails(), null, null, currentBlock).blockingGet());
+		} else if (SlpUtxoParser.isMint(slpOpReturn)) {
+			return Optional.ofNullable(slpDetailsRepository.updateMetadata(slpOpReturn.getTokenId(), currentBlock, null).blockingGet());
+		} else {
+			return Optional.ofNullable(slpDetailsRepository.updateMetadata(slpOpReturn.getTokenId(), null, currentBlock).blockingGet());
 		}
-		return Optional.ofNullable(slpDetailsRepository.fetchSlpDetails((slpOpReturn.getTokenId())).blockingGet());
 	}
 
 	private static Utxo getUtxo(Transaction transaction,
 			boolean fromBlock,
 			TransactionOutput output,
-			Address addr, Instant timestamp) {
+			Address addr,
+			Instant timestamp,
+			Integer height) {
 		if (fromBlock) {
 			return Utxo.confirmed(transaction.getHashAsString(),
 					addr, getScript(output, transaction),
 					fromCoin(output.getValue()),
 					timestamp,
 					output.getIndex(),
-					isOpReturn(output));
+					isOpReturn(output),
+					height
+			);
 		}
 		return Utxo.unconfirmed(transaction.getHashAsString(),
 				addr,

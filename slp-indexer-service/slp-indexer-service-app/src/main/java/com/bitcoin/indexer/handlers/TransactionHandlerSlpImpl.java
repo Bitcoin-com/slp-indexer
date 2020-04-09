@@ -19,6 +19,7 @@ import com.bitcoin.indexer.blockchain.domain.Utxo;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid;
 import com.bitcoin.indexer.facade.validators.SlpValidatorFacade;
 import com.bitcoin.indexer.repository.TransactionRepository;
+import com.bitcoin.indexer.repository.UtxoRepository;
 
 import io.reactivex.Completable;
 import io.reactivex.Flowable;
@@ -29,28 +30,33 @@ public class TransactionHandlerSlpImpl implements TransactionHandler {
 	private final InputHandler inputHandler;
 	private final UtxoHandler utxoHandler;
 	private TransactionRepository transactionRepository;
+	private UtxoRepository utxoRepository;
 	private SlpValidatorFacade slpValidatorFacade;
 	private ForkJoinPool customThreadPool = new ForkJoinPool(32);
 
 	public TransactionHandlerSlpImpl(InputHandler inputHandler,
 			UtxoHandler utxoHandler,
 			TransactionRepository transactionRepository,
-			SlpValidatorFacade slpValidatorFacade) {
+			SlpValidatorFacade slpValidatorFacade,
+			UtxoRepository utxoRepository) {
 		this.inputHandler = Objects.requireNonNull(inputHandler);
 		this.utxoHandler = Objects.requireNonNull(utxoHandler);
 		this.transactionRepository = transactionRepository;
 		this.slpValidatorFacade = Objects.requireNonNull(slpValidatorFacade);
+		this.utxoRepository = Objects.requireNonNull(utxoRepository);
 	}
 
 	@Override
 	public Flowable<IndexerTransaction> handleTransaction(List<IndexerTransaction> transaction) {
-		logger.info("Handling txs id={}", transaction.stream().map(e -> e.getTransaction().getTxId()).collect(Collectors.joining(" : ")));
+		List<IndexerTransaction> distinctTxs = transaction.stream().distinct().collect(Collectors.toList());
+
+		logger.info("Handling txs id={}", distinctTxs.stream().map(e -> e.getTransaction().getTxId()).collect(Collectors.joining(" : ")));
 		try {
 			Map<IndexerTransaction, List<Utxo>> result = new ConcurrentHashMap<>();
 
 			customThreadPool.submit(() -> {
 				try {
-					result.putAll(transaction.parallelStream().collect(Collectors.toMap(tx -> tx, tx -> utxoHandler.handleUtxos(tx).blockingGet())));
+					result.putAll(distinctTxs.parallelStream().collect(Collectors.toMap(tx -> tx, tx -> utxoHandler.handleUtxos(tx).blockingGet())));
 				} catch (Exception e) {
 					logger.info("Error handling utxos", e);
 					throw new RuntimeException(e);
@@ -80,10 +86,13 @@ public class TransactionHandlerSlpImpl implements TransactionHandler {
 
 			try {
 				//Validate txs
+				List<IndexerTransaction> completed = new ArrayList<>();
 				for (IndexerTransaction indexerTransaction : txs) {
 					IndexerTransaction valid = withValid(indexerTransaction);
 					transactionRepository.saveTransaction(List.of(valid)).blockingGet();
+					completed.add(valid);
 				}
+				return Flowable.fromIterable(completed);
 			} catch (Exception e) {
 				logger.error("Could not validate", e);
 				throw new RuntimeException(e);
@@ -92,7 +101,6 @@ public class TransactionHandlerSlpImpl implements TransactionHandler {
 			logger.info("Error handling txs", e);
 			throw new RuntimeException(e);
 		}
-		return Flowable.fromIterable(transaction);
 	}
 
 	@Override

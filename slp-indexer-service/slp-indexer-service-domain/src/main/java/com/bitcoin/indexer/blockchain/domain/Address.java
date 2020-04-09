@@ -52,6 +52,18 @@ public class Address implements Serializable {
 		return new Address(base58, Type.NORMAL);
 	}
 
+	public static Address toBase58(String address) {
+		try {
+			return Address.slpToBase58(address);
+		} catch (Exception e) {
+			try {
+				return Address.cashAddressToBase58(address);
+			} catch (Exception b) {
+				return Address.create(address);
+			}
+		}
+	}
+
 	public static Address cashAddressToBase58(String address) {
 		List<String> parts = Arrays.asList(address.split(":"));
 		String prefix = "bitcoincash";
@@ -111,5 +123,9 @@ public class Address implements Serializable {
 
 	public Type getType() {
 		return type;
+	}
+
+	public boolean isOpReturn() {
+		return address.contains("OPRETURN");
 	}
 }
