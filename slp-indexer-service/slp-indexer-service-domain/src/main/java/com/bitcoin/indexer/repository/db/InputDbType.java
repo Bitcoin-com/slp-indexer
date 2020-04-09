@@ -23,14 +23,15 @@ public class InputDbType implements Serializable {
 
 	private long sequence;
 
-	private SlpUtxoType slpUtxoType;
+	//Naming error :(
+	private SlpUtxoType slpTokenType;
 
-	public InputDbType(String address, String amount, int inputIndex, String txId, SlpUtxoType slpUtxoType, boolean isCoinbase, long sequence) {
+	public InputDbType(String address, String amount, int inputIndex, String txId, SlpUtxoType slpTokenType, boolean isCoinbase, long sequence) {
 		this.address = address;
 		this.amount = amount;
 		this.inputIndex = inputIndex;
 		this.txId = txId;
-		this.slpUtxoType = slpUtxoType;
+		this.slpTokenType = slpTokenType;
 		this.isCoinbase = isCoinbase;
 		this.sequence = sequence;
 	}
@@ -48,8 +49,9 @@ public class InputDbType implements Serializable {
 						slp.getAmount().toString(),
 						slp.hasBaton(),
 						slp.getTokenTicker(),
-						slp.getSlpTokenName()
-				)).orElse(null),
+						slp.getSlpTokenName(),
+						SlpValidDbType.fromDomain(slp.getParentTransactionValid()),
+						slp.getTokenTypeHex())).orElse(null),
 				input.isCoinbase(),
 				input.getSequence()
 		);
@@ -72,7 +74,7 @@ public class InputDbType implements Serializable {
 	}
 
 	public Optional<SlpUtxoType> getSlpUtxoType() {
-		return Optional.ofNullable(slpUtxoType);
+		return Optional.ofNullable(slpTokenType);
 	}
 
 	public boolean isCoinbase() {
@@ -89,7 +91,7 @@ public class InputDbType implements Serializable {
 		document.put("amount", amount);
 		document.put("inputIndex", inputIndex);
 		document.put("txId", txId);
-		document.put("slpTokenType", slpUtxoType == null ? null : slpUtxoType.toDocument());
+		document.put("slpTokenType", slpTokenType == null ? null : slpTokenType.toDocument());
 		document.put("isCoinbase", isCoinbase);
 		document.put("sequence", sequence);
 		return document;

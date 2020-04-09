@@ -2,6 +2,7 @@ package com.bitcoin.indexer.facade;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -168,6 +169,21 @@ public class SLPDBTestVectorTest {
 		@Override
 		public Single<List<IndexerTransaction>> fetchTransactions(Address address, Coin coin) {
 			return Single.just(List.of());
+		}
+
+		@Override
+		public Single<List<IndexerTransaction>> fetchValidTransactions(List<String> txIds, Coin coin, boolean useCache) {
+			return null;
+		}
+
+		@Override
+		public Single<BigDecimal> transactionsForTokenId(String tokenId) {
+			return null;
+		}
+
+		@Override
+		public Single<Map<String, BigDecimal>> transactionsForTokenIds(List<String> tokenIds) {
+			return null;
 		}
 
 		@Override

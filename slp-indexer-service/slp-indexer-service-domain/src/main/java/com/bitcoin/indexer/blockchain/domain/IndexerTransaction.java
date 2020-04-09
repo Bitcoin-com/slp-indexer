@@ -1,7 +1,9 @@
 package com.bitcoin.indexer.blockchain.domain;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import com.bitcoin.indexer.blockchain.domain.slp.SlpUtxo;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid;
@@ -32,10 +34,13 @@ public class IndexerTransaction {
 	}
 
 	public IndexerTransaction withValid(SlpValid slpValid) {
+		List<Utxo> updatedUtxos = this.getTransaction().getOutputs().stream()
+				.map(e -> e.withValid(slpValid)).collect(Collectors.toList());
+
 		return IndexerTransaction.create(
 				Transaction.create(
 						this.getTransaction().getTxId(),
-						this.getTransaction().getOutputs(),
+						updatedUtxos,
 						this.getTransaction().getInputs(),
 						this.getTransaction().isConfirmed(),
 						this.getTransaction().getFees(),

@@ -4,5 +4,5 @@ import java.util.List;
 
 public class ValidateTxIdRequest {
 
-	public List<String> txIds;
+	public List<String> txids;
 }

@@ -1,11 +1,16 @@
 package com.bitcoin.indexer.repository;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
+import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.mongodb.core.BulkOperations;
@@ -14,16 +19,23 @@ import org.springframework.data.mongodb.core.MongoOperations;
 import org.springframework.data.mongodb.core.ReactiveMongoOperations;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.data.util.Pair;
 
 import com.bitcoin.indexer.blockchain.domain.Address;
 import com.bitcoin.indexer.blockchain.domain.Input;
+import com.bitcoin.indexer.blockchain.domain.Transaction;
 import com.bitcoin.indexer.blockchain.domain.Utxo;
-import com.bitcoin.indexer.core.Coin;
+import com.bitcoin.indexer.blockchain.domain.UtxoMinimalData;
+import com.bitcoin.indexer.blockchain.domain.slp.SlpValid;
+import com.bitcoin.indexer.blockchain.domain.slp.SlpValid.Valid;
 import com.bitcoin.indexer.blockchain.domain.timers.SystemTimer;
 import com.bitcoin.indexer.repository.db.AllOutputsDbObject;
+import com.bitcoin.indexer.core.Coin;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.mongodb.bulk.BulkWriteResult;
+import com.mongodb.bulk.BulkWriteUpsert;
 
 import io.reactivex.Flowable;
 import io.reactivex.Maybe;
@@ -59,9 +71,10 @@ public class UtxoRepositoryImpl implements UtxoRepository {
 	}
 
 	@Override
-	public Single<List<Utxo>> fetchUtxosFromAddress(Address address, Coin coin, boolean useCache) {
+	public Single<List<Utxo>> fetchUtxosFromAddress(Address address, Coin coin, boolean useCache, Valid parentValidation) {
 		Query query = Query.query(Criteria.where("address").is(address.getAddress()))
-				.addCriteria(Criteria.where("isSpent").is(false));
+				.addCriteria(Criteria.where("isSpent").is(false))
+				.addCriteria(Criteria.where("slpUtxoType.parentTransactionValid.valid").is(parentValidation.name()));
 		return RxJava2Adapter.fluxToFlowable(reactiveMongoOperations.find(query, AllOutputsDbObject.class)
 				.doOnError(er -> logger.error("Could not fetch address={} slputxos={}", address, er)))
 				.map(AllOutputsDbObject::toDomain)
@@ -69,13 +82,13 @@ public class UtxoRepositoryImpl implements UtxoRepository {
 	}
 
 	@Override
-	public Single<List<Utxo>> fetchSlpUtxosForAddress(Address address, Coin coin, boolean useCache) {
+	public Single<List<Utxo>> fetchSlpUtxosForAddress(Address address, Coin coin, boolean useCache, Valid parentValidation) {
 		/*List<Utxo> ifPresent = utxosCache.getIfPresent(address.getAddress());
 		if (ifPresent != null) {
 			return Single.just(ifPresent);
 		}*/
 
-		return fetchUtxosFromAddress(address, coin, useCache)
+		return fetchUtxosFromAddress(address, coin, useCache, parentValidation)
 				.toFlowable()
 				.flatMap(Flowable::fromIterable)
 				.filter(utxo -> utxo.getSlpUtxo().isPresent())
@@ -97,11 +110,53 @@ public class UtxoRepositoryImpl implements UtxoRepository {
 	}
 
 	@Override
-	public Single<List<Utxo>> fetchUtxosWithTokenId(List<String> tokenIds, boolean isSpent) {
-		Query query = Query.query(Criteria.where("slpUtxoType.slpTokenId").in(tokenIds).and("isSpent").is(isSpent));
+	public Single<List<Utxo>> fetchUtxosWithTokenId(List<String> tokenIds, boolean isSpent, Valid parentValidation) {
+		SystemTimer systemTimer = SystemTimer.create();
+		systemTimer.start();
+		Document hint = new Document();
+		hint.put("slpUtxoType.slpTokenId", 1);
+		hint.put("isSpent", 1);
+		hint.put("slpUtxoType.parentTransactionValid.valid", 1);
+		Query query = Query.query(Criteria.where("slpUtxoType.slpTokenId").in(tokenIds).and("isSpent").is(isSpent))
+				.addCriteria(Criteria.where("slpUtxoType.parentTransactionValid.valid").is(parentValidation.name()))
+				.withHint(hint);
+
 		return RxJava2Adapter.fluxToFlowable(reactiveMongoOperations.find(query, AllOutputsDbObject.class))
 				.map(AllOutputsDbObject::toDomain)
-				.toList();
+				.toList()
+				.doOnSuccess(s -> {
+					logger.trace("Completed utxos={} fetchUtxosWithTokenId={}", s.size(), systemTimer.getMsSinceStart());
+				});
+	}
+
+	@Override
+	public Single<List<UtxoMinimalData>> fetchMinimalUtxoData(List<String> tokenIds, boolean isSpent, Valid parentValidation) {
+		SystemTimer systemTimer = SystemTimer.create();
+		systemTimer.start();
+		Document hint = new Document();
+		hint.put("slpUtxoType.slpTokenId", 1);
+		hint.put("isSpent", 1);
+		hint.put("slpUtxoType.parentTransactionValid.valid", 1);
+		Query query = Query.query(Criteria.where("slpUtxoType.slpTokenId").in(tokenIds).and("isSpent").is(isSpent))
+				.addCriteria(Criteria.where("slpUtxoType.parentTransactionValid.valid").is(parentValidation.name()))
+				.withHint(hint);
+		query.fields()
+				.include("slpUtxoType.slpTokenId")
+				.include("slpUtxoType.amount")
+				.include("slpUtxoType.hasBaton")
+				.include("address")
+				.include("value")
+				.include("slpUtxoType.tokenTransactionType");
+
+		return RxJava2Adapter.fluxToFlowable(reactiveMongoOperations.find(query, AllOutputsDbObject.class))
+				.map(result -> new UtxoMinimalData(result.getId().split(":")[0],
+						new BigDecimal(result.getSlpUtxoType().getAmount()),
+						result.getSlpUtxoType().isHasBaton(), Address.create(result.getAddress()),
+						result.getValue(),
+						result.getSlpUtxoType().getTokenTransactionType(),
+						result.getSlpUtxoType().getSlpTokenId()))
+				.toList()
+				.doOnSuccess(s -> logger.trace("Completed utxos={} fetchUtxosWithTokenId={}", s.size(), systemTimer.getMsSinceStart()));
 	}
 
 	@Override
@@ -211,7 +266,61 @@ public class UtxoRepositoryImpl implements UtxoRepository {
 		return Single.just(utxo);
 	}
 
+	@Override
+	public Single<List<Transaction>> updateUtxoValidationStatus(List<Transaction> txs, Coin coin) {
+		if (txs.isEmpty()) {
+			return Single.just(txs);
+		}
+		List<Utxo> allUtxos = txs.stream().map(Transaction::getOutputs)
+				.flatMap(Collection::stream)
+				.filter(e -> e.getSlpUtxo().isPresent())
+				.collect(Collectors.toList());
+
+		if (allUtxos.isEmpty()) {
+			return Single.just(txs);
+		}
+
+		Map<String, SlpValid> txIdValidation = txs.stream()
+				.filter(e -> e.getSlpValid().isPresent())
+				.collect(Collectors.toMap(Transaction::getTxId, v -> v.getSlpValid().get()));
+
+		BulkOperations bulkOperations = mongoOperations.bulkOps(BulkMode.UNORDERED, AllOutputsDbObject.class);
+
+		for (Utxo bulk : allUtxos) {
+			Update update = new Update();
+			Document document = new Document();
+			SlpValid slpValid = txIdValidation.get(bulk.getTxId());
+			document.put("reason", slpValid.getReason());
+			document.put("valid", slpValid.getValid().name());
+			update.set("slpUtxoType.parentTransactionValid", document);
+			String key = AllOutputsDbObject.keyParser(bulk.getTxId(), bulk.getIndex());
+			logger.trace("Adding utxo valid status key={} txId={} index={} valid={} update={}", key, bulk.getTxId(), bulk.getIndex(), slpValid.getValid(), update.toString());
+			bulkOperations.upsert(Query.query(Criteria.where("_id").is(key)), update);
+			refreshCache(bulk);
+		}
+		BulkWriteResult execute = bulkOperations.execute();
+		logger.trace("utxos={} inserted={} modified={} matched={} upserts={}", allUtxos.size(),
+				execute.getInsertedCount(),
+				execute.getModifiedCount(),
+				execute.getMatchedCount(),
+				execute.getUpserts().stream().map(BulkWriteUpsert::getId).collect(Collectors.toList()));
+		return Single.just(txs);
+	}
+
 	public void addToCache(Utxo utxo) {
 		txIdIndexCache.put(AllOutputsDbObject.keyParser(utxo.getTxId(), utxo.getIndex()), utxo);
+	}
+
+	public void refreshCache(Utxo utxo) {
+		String key = AllOutputsDbObject.keyParser(utxo.getTxId(), utxo.getIndex());
+		Utxo ifPresent = txIdIndexCache.getIfPresent(key);
+		if (ifPresent == null) {
+			return;
+		}
+		if (utxo.getSlpUtxo().isEmpty()) {
+			return;
+		}
+		Utxo withValid = ifPresent.withValid(utxo.getSlpUtxo().get().getParentTransactionValid());
+		txIdIndexCache.put(key, withValid);
 	}
 }

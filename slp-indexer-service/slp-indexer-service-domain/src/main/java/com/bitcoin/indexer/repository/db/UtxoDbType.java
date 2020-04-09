@@ -49,7 +49,9 @@ public class UtxoDbType implements Serializable {
 						u.getAmount().toString(),
 						u.hasBaton(),
 						u.getTokenTicker(),
-						u.getSlpTokenName()))
+						u.getSlpTokenName(),
+						SlpValidDbType.fromDomain(u.getParentTransactionValid()),
+						u.getTokenTypeHex()))
 						.orElse(null));
 	}
 
@@ -124,22 +126,6 @@ public class UtxoDbType implements Serializable {
 	public boolean isOpReturn() {
 		return isOpReturn;
 	}
-
-	/*private String txId;
-
-	private String address;
-
-	private String scriptPubkey;
-
-	private String amount;
-
-	private boolean confirmations;
-
-	private int utxoIndex;
-
-	private boolean isOpReturn;
-
-	private SlpUtxoType slpUtxoType;*/
 
 	public Document toDocument() {
 		Document update = new Document();

@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 import com.bitcoin.indexer.blockchain.domain.slp.SlpUtxo;
+import com.bitcoin.indexer.blockchain.domain.slp.SlpValid;
 
 public class Utxo implements Comparable<Utxo>, Serializable {
 	private static final long serialVersionUID = 1L;
@@ -20,8 +21,9 @@ public class Utxo implements Comparable<Utxo>, Serializable {
 	private final SlpUtxo slpUtxo;
 	private final Instant timestamp;
 	private final boolean isOpReturn;
+	private final Integer confirmedHeight;
 
-	public Utxo(String txId, Address address, String scriptPubkey, BigDecimal amount, boolean confirmed, int index, boolean isSpent, Instant timestamp, SlpUtxo slpUtxo, boolean isOpReturn) {
+	public Utxo(String txId, Address address, String scriptPubkey, BigDecimal amount, boolean confirmed, int index, boolean isSpent, Instant timestamp, SlpUtxo slpUtxo, boolean isOpReturn, Integer confirmedHeight) {
 		this.txId = Objects.requireNonNull(txId);
 		this.address = Objects.requireNonNull(address);
 		this.scriptPubkey = Objects.requireNonNull(scriptPubkey);
@@ -32,6 +34,7 @@ public class Utxo implements Comparable<Utxo>, Serializable {
 		this.isSpent = isSpent;
 		this.slpUtxo = slpUtxo;
 		this.isOpReturn = isOpReturn;
+		this.confirmedHeight = confirmedHeight;
 	}
 
 	public static Utxo create(String txId,
@@ -43,8 +46,9 @@ public class Utxo implements Comparable<Utxo>, Serializable {
 			boolean isSpent,
 			Instant timestamp,
 			SlpUtxo slpUtxo,
-			boolean isOpReturn) {
-		return new Utxo(txId, address, scriptPubkey, amount, confirmations, index, isSpent, timestamp, slpUtxo, isOpReturn);
+			boolean isOpReturn,
+			Integer confirmedHeight) {
+		return new Utxo(txId, address, scriptPubkey, amount, confirmations, index, isSpent, timestamp, slpUtxo, isOpReturn, confirmedHeight);
 	}
 
 	public static Utxo unconfirmed(String txId,
@@ -54,7 +58,7 @@ public class Utxo implements Comparable<Utxo>, Serializable {
 			Instant timestamp,
 			int index,
 			boolean isOpReturn) {
-		return new Utxo(txId, address, scriptPubkey, amount, false, index, false, timestamp, null, isOpReturn);
+		return new Utxo(txId, address, scriptPubkey, amount, false, index, false, timestamp, null, isOpReturn, null);
 	}
 
 	public static Utxo confirmed(String txId,
@@ -63,8 +67,9 @@ public class Utxo implements Comparable<Utxo>, Serializable {
 			BigDecimal amount,
 			Instant timestamp,
 			int index,
-			boolean isOpReturn) {
-		return new Utxo(txId, address, scriptPubkey, amount, true, index, false, timestamp, null, isOpReturn);
+			boolean isOpReturn,
+			Integer confirmedHeight) {
+		return new Utxo(txId, address, scriptPubkey, amount, true, index, false, timestamp, null, isOpReturn, confirmedHeight);
 	}
 
 	public Utxo withTimestamp(Instant instant) {
@@ -78,7 +83,24 @@ public class Utxo implements Comparable<Utxo>, Serializable {
 				isSpent,
 				instant,
 				slpUtxo,
-				isOpReturn
+				isOpReturn,
+				confirmedHeight
+		);
+	}
+
+	public Utxo withValid(SlpValid slpValid) {
+		return Utxo.create(
+				txId,
+				address,
+				scriptPubkey,
+				amount,
+				confirmed,
+				index,
+				isSpent,
+				timestamp,
+				Optional.ofNullable(slpUtxo).map(slpUtxo -> slpUtxo.withValid(slpValid)).orElse(null),
+				isOpReturn,
+				confirmedHeight
 		);
 	}
 
@@ -120,6 +142,10 @@ public class Utxo implements Comparable<Utxo>, Serializable {
 
 	public Instant getTimestamp() {
 		return timestamp;
+	}
+
+	public Optional<Integer> getConfirmedHeight() {
+		return Optional.ofNullable(confirmedHeight);
 	}
 
 	@Override

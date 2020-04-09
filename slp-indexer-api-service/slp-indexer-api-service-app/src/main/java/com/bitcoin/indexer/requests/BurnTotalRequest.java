@@ -4,5 +4,5 @@ import java.util.List;
 
 public class BurnTotalRequest {
 
-	public List<String> txIds;
+	public List<String> txids;
 }

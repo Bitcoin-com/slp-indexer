@@ -8,11 +8,11 @@
 	<parent>
 		<groupId>com.bitcoin.indexer</groupId>
 		<artifactId>slp-indexer-service</artifactId>
-		<version>0.0.3</version>
+		<version>0.0.4</version>
 	</parent>
 
 	<artifactId>slp-indexer-service-app</artifactId>
-	<version>0.0.3</version>
+	<version>0.0.4</version>
 
 	<dependencies>
 		<dependency>
@@ -48,18 +48,6 @@
 			<groupId>org.zeromq</groupId>
 			<artifactId>jeromq</artifactId>
 		</dependency>
-
-		<dependency>
-			<groupId>org.springframework.cloud</groupId>
-			<artifactId>spring-cloud-aws-core</artifactId>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework.cloud</groupId>
-			<artifactId>spring-cloud-aws-messaging</artifactId>
-		</dependency>
-
-
 
 		<dependency>
 			<!-- Added for bootstrap.yml to be loaded, some strange conflict with cloud auto configure.

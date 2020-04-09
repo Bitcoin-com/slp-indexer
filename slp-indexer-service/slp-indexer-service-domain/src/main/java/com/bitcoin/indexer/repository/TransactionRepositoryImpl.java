@@ -1,7 +1,10 @@
 package com.bitcoin.indexer.repository;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -17,14 +20,16 @@ import org.springframework.data.mongodb.core.MongoOperations;
 import org.springframework.data.mongodb.core.ReactiveMongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.util.Pair;
 
 import com.bitcoin.indexer.blockchain.domain.Address;
 import com.bitcoin.indexer.blockchain.domain.IndexerTransaction;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid.Valid;
-import com.bitcoin.indexer.core.Coin;
 import com.bitcoin.indexer.repository.db.TransactionDbObject;
+import com.bitcoin.indexer.core.Coin;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.common.collect.Lists;
 
 import io.reactivex.Completable;
 import io.reactivex.Flowable;
@@ -90,7 +95,7 @@ public class TransactionRepositoryImpl implements TransactionRepository {
 		int limit = 10;
 		int skip = limit * (page - 1);
 		Query query = Query.query(Criteria.where("slpValid.valid").is(Valid.VALID.name())
-				.and("outputs.slpUtxoType.slpTokenId").is(tokenId)).limit(limit).skip(skip).with(new Sort(Direction.DESC, "time"));
+				.and("outputs.slpUtxoType.slpTokenId").is(tokenId)).limit(limit).skip(skip).with(Sort.by(Direction.DESC, "time"));
 
 		return RxJava2Adapter.fluxToFlowable(reactiveMongoTemplate.find(query, TransactionDbObject.class))
 				.map(TransactionDbObject::toDomain)
@@ -105,14 +110,67 @@ public class TransactionRepositoryImpl implements TransactionRepository {
 
 	@Override
 	public Single<List<IndexerTransaction>> fetchTransactions(Address address, Coin coin) {
-		Criteria criteria = new Criteria();
-		criteria.orOperator(Criteria.where("outputs.address").is(address.getAddress()), Criteria.where("inputs.address").is(address.getAddress()));
-		Query query = new Query(criteria);
-		return RxJava2Adapter.fluxToFlowable(reactiveMongoTemplate.find(query, TransactionDbObject.class))
+		Query first = Query.query(Criteria.where("outputs.address").is(address.getAddress()));
+		Query second = Query.query(Criteria.where("inputs.address").is(address.getAddress()));
+		return RxJava2Adapter.fluxToFlowable(reactiveMongoTemplate.find(first, TransactionDbObject.class))
+				.mergeWith(RxJava2Adapter.fluxToFlowable(reactiveMongoTemplate.find(second, TransactionDbObject.class)))
 				.map(TransactionDbObject::toDomain)
 				.map(IndexerTransaction::create)
 				.toList()
 				.doOnError(er -> logger.error("Could not fetch txs for address={}", address));
+	}
+
+	@Override
+	public Single<List<IndexerTransaction>> fetchValidTransactions(List<String> txIds, Coin coin, boolean useCache) {
+		Set<String> ids = new HashSet<>(txIds);
+		Set<IndexerTransaction> result = new HashSet<>();
+
+		for (String txId : txIds) {
+			IndexerTransaction ifPresent = transactionCache.getIfPresent(txId);
+			if (ifPresent != null) {
+				result.add(ifPresent);
+				ids.remove(txId);
+			}
+		}
+		List<List<String>> partition = Lists.partition(txIds, 10000);
+		List<Flowable<IndexerTransaction>> queryFlow = new ArrayList<>();
+		logger.info("Starting query size={} partitions={}", txIds.size(), partition.size());
+		for (List<String> listOfTxIds : partition) {
+			Criteria criteria = new Criteria();
+			criteria.andOperator(Criteria.where("_id").in(listOfTxIds), Criteria.where("slpValid.valid").is(Valid.VALID.name()));
+			Query query = Query.query(criteria);
+			Flowable<IndexerTransaction> flow = RxJava2Adapter.fluxToFlowable(reactiveMongoTemplate.find(query, TransactionDbObject.class))
+					.map(e -> IndexerTransaction.create(e.toDomain()))
+					.mergeWith(Flowable.fromIterable(result));
+			queryFlow.add(flow);
+		}
+		logger.info("Query setup done");
+		return Flowable.mergeDelayError(queryFlow, 4)
+				.toList()
+				.doOnSuccess(txs -> {
+					logger.info("Query done found={}", txs.size());
+					executorService.submit(() -> txs.forEach(t -> transactionCache.put(t.getTransaction().getTxId(), t)));
+				});
+	}
+
+	@Override
+	public Single<BigDecimal> transactionsForTokenId(String tokenId) {
+		Query query = Query.query(Criteria.where("outputs.slpUtxoType.slpTokenId").is(tokenId));
+		return RxJava2Adapter.monoToSingle(reactiveMongoTemplate.count(query, "transactions"))
+				.map(BigDecimal::new);
+	}
+
+	@Override
+	public Single<Map<String, BigDecimal>> transactionsForTokenIds(List<String> tokenIds) {
+		return Flowable.fromIterable(tokenIds).flatMapSingle(tokenId -> transactionsForTokenId(tokenId)
+				.map(res -> Pair.of(tokenId, res)))
+				.groupBy(Pair::getFirst)
+				.flatMapSingle(group -> group.toMap(Pair::getFirst, Pair::getSecond))
+				.reduce((result, result2) -> {
+					result.putAll(result2);
+					return result;
+				})
+				.toSingle(Map.of());
 	}
 
 	@Override

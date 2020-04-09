@@ -6,6 +6,7 @@ import java.util.Objects;
 
 import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenId;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpUtxo;
+import com.bitcoin.indexer.blockchain.domain.slp.SlpValid;
 
 public class SlpUtxoType implements Serializable {
 	private static final long serialVersionUID = 1L;
@@ -24,10 +25,14 @@ public class SlpUtxoType implements Serializable {
 
 	private String tokenName;
 
+	private SlpValidDbType parentTransactionValid;
+
+	private String tokenTypeHex;
+
 	public SlpUtxoType() {
 	}
 
-	public SlpUtxoType(String slpTokenId, String tokenTransactionType, String tokenType, String amount, boolean hasBaton, String tokenTicker, String tokenName) {
+	public SlpUtxoType(String slpTokenId, String tokenTransactionType, String tokenType, String amount, boolean hasBaton, String tokenTicker, String tokenName, SlpValidDbType parentTransactionValid, String tokenTypeHex) {
 		this.slpTokenId = Objects.requireNonNull(slpTokenId);
 		this.tokenTransactionType = Objects.requireNonNull(tokenTransactionType);
 		this.tokenType = Objects.requireNonNull(tokenType);
@@ -35,6 +40,8 @@ public class SlpUtxoType implements Serializable {
 		this.hasBaton = hasBaton;
 		this.tokenTicker = Objects.requireNonNull(tokenTicker);
 		this.tokenName = Objects.requireNonNull(tokenName);
+		this.parentTransactionValid = Objects.requireNonNull(parentTransactionValid);
+		this.tokenTypeHex = Objects.requireNonNull(tokenTypeHex);
 	}
 
 	public SlpUtxo toDomain() {
@@ -45,7 +52,9 @@ public class SlpUtxoType implements Serializable {
 				getTokenTicker(),
 				getTokenTransactionType(),
 				getTokenName(),
-				getTokenType());
+				getTokenType(),
+				getTokenTypeHex(),
+				SlpValid.create(parentTransactionValid.getReason(), parentTransactionValid.getValid()));
 	}
 
 	public org.bson.Document toDocument() {
@@ -53,10 +62,12 @@ public class SlpUtxoType implements Serializable {
 		update.put("slpTokenId", slpTokenId);
 		update.put("tokenTransactionType", tokenTransactionType);
 		update.put("tokenType", tokenType);
+		update.put("tokenTypeHex", tokenTypeHex);
 		update.put("amount", amount);
 		update.put("hasBaton", hasBaton);
 		update.put("tokenTicker", tokenTicker);
 		update.put("tokenName", tokenName);
+		update.put("parentTransactionValid", parentTransactionValid.toDocument());
 		return update;
 	}
 
@@ -86,5 +97,13 @@ public class SlpUtxoType implements Serializable {
 
 	public String getTokenType() {
 		return tokenType;
+	}
+
+	public SlpValidDbType getParentTransactionValid() {
+		return parentTransactionValid;
+	}
+
+	public String getTokenTypeHex() {
+		return tokenTypeHex;
 	}
 }

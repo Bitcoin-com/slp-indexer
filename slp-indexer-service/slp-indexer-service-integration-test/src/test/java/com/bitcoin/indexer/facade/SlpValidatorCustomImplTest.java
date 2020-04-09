@@ -2,6 +2,7 @@ package com.bitcoin.indexer.facade;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -24,13 +25,13 @@ import com.bitcoin.indexer.blockchain.domain.slp.SlpOpReturn;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenDetails;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenId;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid;
-import com.bitcoin.indexer.core.Coin;
 import com.bitcoin.indexer.facade.validators.GenesisValidatorAssumeParentValid;
 import com.bitcoin.indexer.facade.validators.MintValidatorAssumeParentValid;
 import com.bitcoin.indexer.facade.validators.SendValidatorAssumeParentValid;
 import com.bitcoin.indexer.facade.validators.SlpValidatorCustomImplAssumeParentValid;
 import com.bitcoin.indexer.facade.validators.SlpValidatorFacade;
 import com.bitcoin.indexer.repository.TransactionRepository;
+import com.bitcoin.indexer.core.Coin;
 
 import io.reactivex.Completable;
 import io.reactivex.Maybe;
@@ -73,6 +74,21 @@ public class SlpValidatorCustomImplTest {
 		@Override
 		public Single<List<IndexerTransaction>> fetchTransactions(Address address, Coin coin) {
 			return Single.just(List.of());
+		}
+
+		@Override
+		public Single<List<IndexerTransaction>> fetchValidTransactions(List<String> txIds, Coin coin, boolean useCache) {
+			return null;
+		}
+
+		@Override
+		public Single<BigDecimal> transactionsForTokenId(String tokenId) {
+			return null;
+		}
+
+		@Override
+		public Single<Map<String, BigDecimal>> transactionsForTokenIds(List<String> tokenIds) {
+			return null;
 		}
 
 		@Override
@@ -130,7 +146,7 @@ public class SlpValidatorCustomImplTest {
 	@Test
 	public void transaction_should_be_valid() {
 		SlpTokenDetails slpTokenDetails = new SlpTokenDetails(new SlpTokenId("4abbea22956e7db07ac3ae7eb88b14f23ccc5dce4273728275cb17ec91e6f57c"), "", "", 8, "", null);
-		fakeInMemoryDetails.saveSlpTokenDetails(slpTokenDetails).blockingGet();
+		fakeInMemoryDetails.saveSlpTokenDetails(slpTokenDetails, null, null, 1244).blockingGet();
 
 		Transaction errorTx = new Transaction(MainNetParams.get(), Hex.decode(
 				"0200000002a1ce09c05353adc011ed853838f53926e67ac2cd797a3e9adafd3a392646e8f7020000006a473044022044181891cd4eb8c718eaa7de3dd9b16ec6897e84daf44f91ce528008a76f261702205755196a9d200a1650aaba418c7b6e03752b4eabf3aabaebc5424f8d569f7e2e412103c782f3fb67aced9a921ff1eedee2bbbc0c989952cc4072ff8c77fa5f62eab5aeffffffffa1ce09c05353adc011ed853838f53926e67ac2cd797a3e9adafd3a392646e8f7030000006b48304502210085cebe0410abb78dda22f1bbc9b8ace47dc7e944434fcf815418c0ebad920fb302204ef4209010fad1128f4bc445a4437b79dd0d4ece86c20e4ceb13750bed94f80d4121032a597661f7ba57b04ec0ce514b3fe5a411f4ece81f589c0cedfc36e32fbb85bfffffffff040000000000000000406a04534c500001010453454e44204abbea22956e7db07ac3ae7eb88b14f23ccc5dce4273728275cb17ec91e6f57c08000000000003d09008000000024e0a145022020000000000001976a914bd59d42cdeb398c76eb9284cdcbd262eb8c1176c88ac22020000000000001976a914b9d65fc863a411237d81c4fc347ab0f9e002889388acd83b3d00000000001976a914a15c23a82beec19cb92ba1ea8506f6a322f22a0f88ac00000000"));

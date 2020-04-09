@@ -144,19 +144,23 @@ public class TransactionDbObject implements Serializable {
 						slp.getTokenTicker(),
 						slp.getTokenTransactionType(),
 						slp.getTokenName(),
-						slp.getTokenType()
+						slp.getTokenType(),
+						slp.getTokenTypeHex(),
+						SlpValid.create(slpValid.getReason(), slpValid.getValid())
 				)).orElse(null),
-				e.isOpReturn()
+				e.isOpReturn(),
+				blockHeight
 		)).collect(Collectors.toList());
+		List<Input> inputs = this.inputs.stream().map(inp -> Input.knownValue(Address.create(inp.getAddress()),
+				new BigDecimal(inp.getAmount()),
+				inp.getInputIndex(),
+				inp.getTxId(),
+				inp.getSlpUtxoType().map(SlpUtxoType::toDomain).orElse(null),
+				inp.isCoinbase(), inp.getSequence())).collect(Collectors.toList());
 		return Transaction.create(
 				txId,
 				utxos,
-				inputs.stream().map(inp -> Input.knownValue(Address.create(inp.getAddress()),
-						new BigDecimal(inp.getAmount()),
-						inp.getInputIndex(),
-						inp.getTxId(),
-						inp.getSlpUtxoType().map(SlpUtxoType::toDomain).orElse(null),
-						inp.isCoinbase(), inp.getSequence())).collect(Collectors.toList()),
+				inputs,
 				blockHeight != null,
 				fees,
 				time,

@@ -9,12 +9,15 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 import org.bitcoinj.core.BitcoinSerializer;
 import org.bitcoinj.core.Block;
 import org.bitcoinj.core.Context;
 import org.bitcoinj.core.Transaction;
 import org.bitcoinj.params.MainNetParams;
+import org.bitcoinj.params.TestNet3Params;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Test;
@@ -24,11 +27,14 @@ import org.springframework.data.util.Pair;
 import com.bitcoin.indexer.blockchain.domain.Address;
 import com.bitcoin.indexer.blockchain.domain.Input;
 import com.bitcoin.indexer.blockchain.domain.Utxo;
+import com.bitcoin.indexer.blockchain.domain.UtxoMinimalData;
+import com.bitcoin.indexer.blockchain.domain.slp.ExtendedDetails;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpOpReturnGenesis;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpOpReturnSend;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenDetails;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenId;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpUtxo;
+import com.bitcoin.indexer.blockchain.domain.slp.SlpValid.Valid;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpVerifiedToken;
 import com.bitcoin.indexer.config.SystemTimer;
 import com.bitcoin.indexer.core.Coin;
@@ -47,28 +53,44 @@ public class BitcoinJConvertersTest {
 	private BitcoinJConverters bitcoinJConverters = new BitcoinJConverters(new SlpDetailsRepository() {
 		@Override
 		public Maybe<SlpTokenDetails> fetchSlpDetails(SlpTokenId slpTokenId) {
+			if (tokenDetailsMap.containsKey(slpTokenId.getHex())) {
+				return Maybe.just(tokenDetailsMap.get(slpTokenId.getHex()));
+			}
+
+
 			return Maybe.just(new SlpTokenDetails(slpTokenId, "", "", 0, "", SlpVerifiedToken.create(slpTokenId, false, "", "")));
 		}
 
 		@Override
 		public Single<List<SlpTokenDetails>> fetchSlpDetails(List<SlpTokenId> slpTokenIds) {
-			return Single.just(List.of());
+			List<SlpTokenDetails> collect = slpTokenIds.stream().map(s -> tokenDetailsMap.get(s.getHex())).filter(Objects::nonNull).collect(Collectors.toList());
+			return Single.just(collect);
 		}
 
 		@Override
-		public Single<SlpTokenDetails> saveSlpTokenDetails(SlpTokenDetails slpTokenDetails) {
+		public Single<SlpTokenDetails> saveSlpTokenDetails(SlpTokenDetails slpTokenDetails, Integer lastActiveMint, Integer lastActiveSend, Integer blockCreated) {
 			tokenDetailsMap.put(slpTokenDetails.getTokenId().getHex(), slpTokenDetails);
 			return Single.just(slpTokenDetails);
 		}
 
+		@Override
+		public Maybe<SlpTokenDetails> updateMetadata(SlpTokenId slpTokenId, Integer lastActiveMint, Integer lastActiveSend) {
+			return fetchSlpDetails(slpTokenId);
+		}
+
+		@Override
+		public Single<List<ExtendedDetails>> fetchExtendedDetails(List<SlpTokenId> slpTokenIds) {
+			return Single.just(List.of());
+		}
+
 	}, new UtxoRepository() {
 		@Override
-		public Single<List<Utxo>> fetchUtxosFromAddress(Address address, Coin coin, boolean useCache) {
+		public Single<List<Utxo>> fetchUtxosFromAddress(Address address, Coin coin, boolean useCache, Valid parentValid) {
 			return null;
 		}
 
 		@Override
-		public Single<List<Utxo>> fetchSlpUtxosForAddress(Address address, Coin coin, boolean useCache) {
+		public Single<List<Utxo>> fetchSlpUtxosForAddress(Address address, Coin coin, boolean useCache, Valid parentValid) {
 			return null;
 		}
 
@@ -78,8 +100,13 @@ public class BitcoinJConvertersTest {
 		}
 
 		@Override
-		public Single<List<Utxo>> fetchUtxosWithTokenId(List<String> tokenIds, boolean isSpent) {
+		public Single<List<Utxo>> fetchUtxosWithTokenId(List<String> tokenIds, boolean isSpent, Valid parentValid) {
 			return Single.just(List.of());
+		}
+
+		@Override
+		public Single<List<UtxoMinimalData>> fetchMinimalUtxoData(List<String> tokenIds, boolean isSpent, Valid parentValidation) {
+			return null;
 		}
 
 		@Override
@@ -110,6 +137,11 @@ public class BitcoinJConvertersTest {
 		@Override
 		public Single<List<Utxo>> removeUtxo(List<Utxo> utxos, Coin coin) {
 			return Single.just(List.of());
+		}
+
+		@Override
+		public Single<List<com.bitcoin.indexer.blockchain.domain.Transaction>> updateUtxoValidationStatus(List<com.bitcoin.indexer.blockchain.domain.Transaction> txs, Coin coin) {
+			return null;
 		}
 
 		@Override
@@ -293,8 +325,55 @@ public class BitcoinJConvertersTest {
 
 		Utxo utxo = convertedTx.getOutputs().get(1);
 		assertThat(utxo.getSlpUtxo().get().getAmount(), Matchers.is(new BigDecimal("18000000000000000000")));
-
 	}
+
+	//60936144d44c75216daef5527f09eb9e17202f39fe718f33565c2fb396f27580
+	@Test
+	public void parses_weird_genesis() {
+		Transaction transaction = new Transaction(MainNetParams.get(), Hex.decode(
+				"0200000001b83a7a227c412aea08711ae34c3da721d3552d89f055f05b8560271734091da8000000006b4830450221008be64d647603531b5571484f02849f0a5a8f4a9bc203b3d0a95557bfcc698deb0220597e3f8607ae2617ab52eb789f75c51e5e5df964d6ca2215e64547f1e851bbfe412102a968f16d62c859141d78801dff14cfe76e3495e848850401805e0053849e5b31ffffffff030000000000000000886a04534c500001010747454e4553495309703273682e636173684c004c5b007b933a184195ffd8d4a62ea46eda05b2d915994fdcbab98b8ea7f3e6d71df0c6716c5503e5a03be222dc1f836d3882d77547c10501015101210345b3dff4d5bd3a947167441ef9984f33405cece76be2ae1224a5bea1dd3c4fe04c000100010208000000000000000122020000000000001976a914ca2f524b1878b7d1815c52c90999b7e441c3651f88ac22020000000000001976a914ca2f524b1878b7d1815c52c90999b7e441c3651f88ac00000000"));
+		com.bitcoin.indexer.blockchain.domain.Transaction convertedTx = bitcoinJConverters.transaction(transaction, MainNetParams.get(), 0, false, "", Instant.MAX, Instant.ofEpochMilli(200));
+
+		SlpOpReturnGenesis slpOpReturn = (SlpOpReturnGenesis) convertedTx.getSlpOpReturn().get(0);
+
+		for (char c : slpOpReturn.getDocumentUri().toCharArray()) {
+			assertThat(c, Matchers.not(Matchers.is(Character.MIN_VALUE)));
+		}
+	}
+
+	@Test
+	public void parses_tx_correctly () {
+		Transaction transaction = new Transaction(MainNetParams.get(), Hex.decode(
+				"020000000275ffa1cc27d9a90e3a9c95abb90139512190cbc3ae58fce25a443fcb561ac2a8010000006b483045022100f6bfa2f69bae76d106bbff5d73fac88980d6d12348b04868e9172c2acb49e66502202b09e4129ec5aaae5d40da1db59bade53bd690db16465f89dd93fcf89968cb154121029800ef84f6cd87d5c9b79e80cf20e05c8e0abe192147cb1427bec0ac59672d31ffffffff75ffa1cc27d9a90e3a9c95abb90139512190cbc3ae58fce25a443fcb561ac2a8030000006b483045022100f971ee830d00510331b588d5b58274aec8a43cedb39061cba996bc2591666bb0022008b7ad59551d693ee3dfe53afd24c132ada87654ab672387dd84043470ec5e924121029800ef84f6cd87d5c9b79e80cf20e05c8e0abe192147cb1427bec0ac59672d31ffffffff040000000000000000546a04534c500001010747454e45534953035358521a5374616e646172642065587072657373697665205265776172641568747470733a2f2f616c64696e2d7378722e6d6c2f4c00010301020800000000000f462822020000000000001976a91485f656c5e6dad18b303cf54b21afaff5ee4da93e88ac22020000000000001976a91485f656c5e6dad18b303cf54b21afaff5ee4da93e88ac94cf0200000000001976a91485f656c5e6dad18b303cf54b21afaff5ee4da93e88ac00000000"));
+
+		com.bitcoin.indexer.blockchain.domain.Transaction convertedTx = bitcoinJConverters.transaction(transaction, MainNetParams.get(), 0, false, "", Instant.MAX, Instant.ofEpochMilli(200));
+
+		SlpOpReturnGenesis slpOpReturn = (SlpOpReturnGenesis) convertedTx.getSlpOpReturn().get(0);
+
+		System.out.println();
+	}
+
+	@Test
+	public void test () {
+		tokenDetailsMap.put("22e0a1c63e534ee2f2cfa607318788bcde8e630c6b0511529d4a04c9ea389721", new SlpTokenDetails(
+				new SlpTokenId("22e0a1c63e534ee2f2cfa607318788bcde8e630c6b0511529d4a04c9ea389721"),
+				"",
+				"",
+				8,
+				"",
+				null
+		));
+		Transaction transaction = new Transaction(TestNet3Params.get(), Hex.decode(
+				"02000000027b8c0907b579ecd9732cae79e26f9bd3bd75085d64d641b193bd960ff19a0aad030000006a47304402204df7b205650d3f549667548cee3ab5ae156faf2a1e0fdbd8f5e04d1574dd4e35022006e517fe1e0c49b742353432b6785c6703e233559196aee7f1cbf6dfa2014976412103d01a1cedc073d35929b4c8191aab7a12d5c69a430186474ecb81356f21194064ffffffff7b8c0907b579ecd9732cae79e26f9bd3bd75085d64d641b193bd960ff19a0aad040000006a473044022000cd788ae68e3ea90e79bb054e3aeabfe59f1a4b974da207bcc95a675a041ada0220367ce7744c7c3b0a5ddbdf84a790cc76c6af6d9922f020f3ec5949f8036f03f1412103d01a1cedc073d35929b4c8191aab7a12d5c69a430186474ecb81356f21194064ffffffff050000000000000000496a04534c500001010453454e442022e0a1c63e534ee2f2cfa607318788bcde8e630c6b0511529d4a04c9ea389721080000000000989680080000000001312d00080000000027ef638022020000000000001976a9148a6f423339360672388b88ac0f0f62780beb274a88ac22020000000000001976a91479fe03003733a10a2fb36125ba671d33b7c2a77588ac22020000000000001976a914f5e82dc01170d99a16bf9610da873df47f82aa7a88ac858b0000000000001976a914f5e82dc01170d99a16bf9610da873df47f82aa7a88ac00000000"));
+
+		com.bitcoin.indexer.blockchain.domain.Transaction convertedTx = bitcoinJConverters.transaction(transaction, MainNetParams.get(), 0, false, "", Instant.MAX, Instant.ofEpochMilli(200));
+
+		SlpOpReturnSend slpOpReturn = (SlpOpReturnSend) convertedTx.getSlpOpReturn().get(0);
+
+		System.out.println();
+	}
+
+
 	/*//
 	@Test
 	public void invalid() {

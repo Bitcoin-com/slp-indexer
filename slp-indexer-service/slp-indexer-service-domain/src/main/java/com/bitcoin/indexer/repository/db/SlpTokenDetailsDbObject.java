@@ -18,12 +18,21 @@ public class SlpTokenDetailsDbObject {
 
 	private String documentUri;
 
-	public SlpTokenDetailsDbObject(String tokenId, String tokenTicker, String name, Integer decimals, String documentUri) {
+	private Integer lastActiveSend;
+
+	private Integer lastActiveMint;
+
+	private Integer blockCreated;
+
+	public SlpTokenDetailsDbObject(String tokenId, String tokenTicker, String name, Integer decimals, String documentUri, Integer lastActiveSend, Integer lastActiveMint, Integer blockCreated) {
 		this.tokenId = tokenId;
 		this.tokenTicker = tokenTicker;
 		this.name = name;
 		this.decimals = decimals;
 		this.documentUri = documentUri;
+		this.lastActiveSend = lastActiveSend;
+		this.lastActiveMint = lastActiveMint;
+		this.blockCreated = blockCreated;
 	}
 
 	public Update toUpdate() {
@@ -33,6 +42,9 @@ public class SlpTokenDetailsDbObject {
 		update.set("name", name);
 		update.set("decimals", decimals);
 		update.set("documentUri", documentUri);
+		update.set("lastActiveSend", lastActiveSend);
+		update.set("lastActiveMint", lastActiveMint);
+		update.set("blockCreated", blockCreated);
 		return update;
 	}
 
@@ -54,5 +66,17 @@ public class SlpTokenDetailsDbObject {
 
 	public String getDocumentUri() {
 		return documentUri;
+	}
+
+	public Integer getLastActiveSend() {
+		return lastActiveSend;
+	}
+
+	public Integer getLastActiveMint() {
+		return lastActiveMint;
+	}
+
+	public Integer getBlockCreated() {
+		return blockCreated;
 	}
 }

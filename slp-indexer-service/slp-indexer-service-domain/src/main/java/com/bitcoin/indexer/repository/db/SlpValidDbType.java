@@ -2,6 +2,7 @@ package com.bitcoin.indexer.repository.db;
 
 import org.bson.Document;
 
+import com.bitcoin.indexer.blockchain.domain.slp.SlpValid;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid.Valid;
 
 public class SlpValidDbType {
@@ -12,6 +13,10 @@ public class SlpValidDbType {
 	public SlpValidDbType(String reason, Valid valid) {
 		this.reason = reason;
 		this.valid = valid;
+	}
+
+	public static SlpValidDbType fromDomain(SlpValid slpValid) {
+		return new SlpValidDbType(slpValid.getReason(), slpValid.getValid());
 	}
 
 	public SlpValidDbType() {

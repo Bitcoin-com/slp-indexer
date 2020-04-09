@@ -10,6 +10,9 @@ package com.bitcoin.indexer.responses;
 
 import java.math.BigDecimal;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.bitcoin.indexer.blockchain.domain.Address;
 
 public class BalanceResponse {
@@ -21,14 +24,25 @@ public class BalanceResponse {
 	public String cashAddress;
 	public String legacyAddress;
 	public Integer decimalCount;
+	private static final Logger logger = LoggerFactory.getLogger(BalanceResponse.class);
 
 	public BalanceResponse(String tokenId, BigDecimal balance, String balanceString, String slpAddress, Integer decimalCount) {
 		this.tokenId = tokenId;
 		this.balance = balance;
 		this.balanceString = balanceString;
 		this.slpAddress = slpAddress;
-		this.legacyAddress = Address.slpToBase58(slpAddress).getAddress();
-		this.cashAddress = Address.base58ToCash(legacyAddress).getAddress();
+		try {
+			if (!slpAddress.contains("simpleledger")) {
+				String withPrefix = "simpleledger:" + slpAddress.trim();
+				this.legacyAddress = Address.toBase58(withPrefix).getAddress();
+				this.cashAddress = Address.slpToBase58(withPrefix).getAddress();
+			} else {
+				this.legacyAddress = Address.toBase58(slpAddress).getAddress();
+				this.cashAddress = Address.slpToBase58(slpAddress).getAddress();
+			}
+		} catch (Exception e) {
+			logger.error("Could not convert address={}", slpAddress);
+		}
 		this.decimalCount = decimalCount;
 	}
 }
