@@ -1,16 +1,21 @@
 package com.bitcoin.indexer.controllers;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.spongycastle.util.encoders.Hex;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,6 +28,9 @@ import org.springframework.web.server.ResponseStatusException;
 import com.bitcoin.indexer.blockchain.domain.Address;
 import com.bitcoin.indexer.blockchain.domain.IndexerTransaction;
 import com.bitcoin.indexer.blockchain.domain.Utxo;
+import com.bitcoin.indexer.blockchain.domain.UtxoMinimalData;
+import com.bitcoin.indexer.blockchain.domain.slp.ByteUtils;
+import com.bitcoin.indexer.blockchain.domain.slp.ExtendedDetails;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenDetails;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenId;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpUtxo;
@@ -31,6 +39,7 @@ import com.bitcoin.indexer.blockchain.domain.slp.SlpValid.Valid;
 import com.bitcoin.indexer.core.Coin;
 import com.bitcoin.indexer.facade.InsightsFacade;
 import com.bitcoin.indexer.facade.InsightsResponse;
+import com.bitcoin.indexer.metrics.SystemTimer;
 import com.bitcoin.indexer.repository.SlpDetailsRepository;
 import com.bitcoin.indexer.repository.TransactionRepository;
 import com.bitcoin.indexer.repository.UtxoRepository;
@@ -40,7 +49,6 @@ import com.bitcoin.indexer.requests.BalanceForAddressRequest;
 import com.bitcoin.indexer.requests.BalanceForTokenRequest;
 import com.bitcoin.indexer.requests.BurnTotalRequest;
 import com.bitcoin.indexer.requests.ExtendedDetailsRequest;
-import com.bitcoin.indexer.requests.TokenDetailsRequest;
 import com.bitcoin.indexer.requests.ValidateTxIdRequest;
 import com.bitcoin.indexer.responses.AddressConvertResponse;
 import com.bitcoin.indexer.responses.BalanceForTokenResponse;
@@ -52,21 +60,21 @@ import com.bitcoin.indexer.responses.ExtendedDetailsResponse;
 import com.bitcoin.indexer.responses.Output;
 import com.bitcoin.indexer.responses.RecentTransactionsResponse;
 import com.bitcoin.indexer.responses.SlpValidateResponse;
-import com.bitcoin.indexer.responses.TokenDetailsResponse;
 import com.bitcoin.indexer.responses.TokenTransactionResponse;
 import com.bitcoin.indexer.responses.TransactionTokenAddress;
 import com.bitcoin.indexer.responses.TxDetailsResponse;
 import com.bitcoin.indexer.responses.TxDetailsResponse.TokenInfo;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import io.reactivex.Flowable;
 import io.reactivex.Maybe;
+import io.reactivex.Scheduler;
 import io.reactivex.Single;
+import io.reactivex.schedulers.Schedulers;
 
-/*
-This api is made to correspond to rest.bitcoin.com api.
-New api endpoints should be done properly with versioning and separate controllers
-*/
-
+// This controller should be burned along with rest.bitcoin.com/v2/slp api.......
 @RequestMapping("/v2/slp")
 @RestController
 public class SlpController {
@@ -77,6 +85,22 @@ public class SlpController {
 	private SlpDetailsRepository detailsRepository;
 	private InsightsFacade insightsFacade;
 	private static final Logger logger = LoggerFactory.getLogger(SlpController.class);
+	private static final int MAX_BATCH_SIZE = 3;
+	private final Cache<String, ExtendedDetailsResponse> extendedDetailsResponseCache = Caffeine.newBuilder()
+			.executor(Executors.newSingleThreadExecutor())
+			.maximumSize(100)
+			.expireAfterWrite(1, TimeUnit.DAYS)
+			.build();
+	private final Scheduler schedulers = Schedulers.from(Executors.newFixedThreadPool(50, new ThreadFactoryBuilder()
+			.setNameFormat("refresh-cache-thread")
+			.build()));
+
+	private final ScheduledExecutorService refresh = Executors.newSingleThreadScheduledExecutor();
+
+	private Set<String> bigTokens = Set.of("7f8889682d57369ed0e32336f8b7e0ffec625a35cca183f4e81fde4e71a538a1", //HONK
+			"4de69e374a8ed21cbddd47f2338cc0f479dc58daa2bbe11cd604ca488eca0ddf", //SPICE
+			"aa1cdd36ab9f4aa6284e5ff370421305887f845f076c38689bd912e372058c11", //TRIBE
+			"6448381f9649ecacd8c30189cfbfee71a91b6b9738ea494fe33f8b8b51cbfca0"); //SOUR
 
 	public SlpController(TransactionRepository transactionRepository,
 			UtxoRepository utxoRepository,
@@ -88,6 +112,20 @@ public class SlpController {
 		this.coin = coin;
 		this.detailsRepository = detailsRepository;
 		this.insightsFacade = Objects.requireNonNull(insightsFacade);
+
+		refresh.scheduleWithFixedDelay(
+				() -> {
+					try {
+						SystemTimer systemTimer = SystemTimer.create();
+						systemTimer.start();
+						makeExtendedListRequest(new ArrayList<>(bigTokens)).blockingGet();
+						logger.info("Completed refresh of bigTokens time={}", systemTimer.getMsSinceStart());
+					} catch (Exception e) {
+						logger.error("Error refreshing", e);
+					}
+				}, 1000, 30000, TimeUnit.MILLISECONDS
+		);
+
 	}
 
 	@GetMapping("/validateTxid/{txId}")
@@ -103,17 +141,17 @@ public class SlpController {
 				.toSingle(new SlpValidateResponse(txId, false, ""));
 	}
 
-	@PostMapping("/validateTxid/")
+	@PostMapping("/validateTxid")
 	public Single<List<SlpValidateResponse>> slpValidateResponseSingle(@RequestBody ValidateTxIdRequest request) {
-		if (request.txIds.stream().anyMatch(txId -> txId.length() != 64)) {
+		if (request.txids.stream().anyMatch(txId -> txId.length() != 64)) {
 			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Not a valid txId=" + request));
 		}
 
-		if (request.txIds.size() >= 20) {
-			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Batch size cannot be larger than 20"));
+		if (request.txids.size() > 500) {
+			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Batch size cannot be larger than 500"));
 		}
 
-		return transactionRepository.fetchTransactions(request.txIds, coin, true)
+		return transactionRepository.fetchTransactions(request.txids, coin, true)
 				.toFlowable()
 				.flatMap(Flowable::fromIterable)
 				.map(txs -> txs.getTransaction().getSlpValid()
@@ -123,7 +161,10 @@ public class SlpController {
 	}
 
 	private boolean getValid(SlpValid slpValid) {
-		return slpValid.getValid() != Valid.INVALID;
+		if (slpValid.getValid() == Valid.VALID) {
+			return true;
+		}
+		return false;
 	}
 
 	@GetMapping("/list")
@@ -132,50 +173,17 @@ public class SlpController {
 	}
 
 	@GetMapping("/list/{tokenId}")
-	public Single<TokenDetailsResponse> details(@PathVariable String tokenId) {
-		if (tokenId.length() != 64) {
-			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Not a valid tokenId=" + tokenId));
-		}
-
-		return detailsRepository.fetchSlpDetails(new SlpTokenId(tokenId))
-				.zipWith(transactionRepository.fetchTransaction(tokenId, coin, true), (details, tx) -> new TokenDetailsResponse(
-						details.getDecimals(),
-						details.getDocumentUri(),
-						details.getTicker(),
-						details.getName(),
-						false,
-						details.getTokenId().getHex(),
-						getInitialTokenValue(tx).intValue(),
-						tx.getTransaction().getBlockHeight().orElse(-1)
-				))
-				.doOnError(er -> logger.error("Could not fetch details for tokenId={}", tokenId, er))
-				.onErrorReturnItem(new TokenDetailsResponse())
-				.toSingle(new TokenDetailsResponse());
+	public Single<ExtendedDetailsResponse> details(@PathVariable String tokenId) {
+		return extendedDetailsResponse(tokenId);
 	}
 
-	@PostMapping("/list/")
-	public Single<List<TokenDetailsResponse>> details(@RequestBody TokenDetailsRequest tokenDetailsRequest) {
-		if (tokenDetailsRequest.tokenIds.size() >= 5) {
-			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Batch size cannot be larger than 20"));
+	@PostMapping("/list")
+	public Single<List<ExtendedDetailsResponse>> details(@RequestBody ExtendedDetailsRequest tokenDetailsRequest) {
+		if (tokenDetailsRequest.tokenIds.size() > MAX_BATCH_SIZE) {
+			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Batch size cannot be larger than " + MAX_BATCH_SIZE));
 		}
-
-		List<SlpTokenId> ids = tokenDetailsRequest.tokenIds.stream().map(SlpTokenId::new).collect(Collectors.toList());
-		return detailsRepository.fetchSlpDetails(ids)
-				.zipWith(transactionRepository.fetchTransactions(tokenDetailsRequest.tokenIds, coin, true), (details, transactions) -> {
-					Map<String, IndexerTransaction> txIdToTx = transactions.stream().collect(Collectors.toMap(e -> e.getTransaction().getTxId(), v -> v));
-					return details.stream().map(d -> new TokenDetailsResponse(
-							d.getDecimals(),
-							d.getDocumentUri(),
-							d.getTicker(),
-							d.getName(),
-							false,
-							d.getTokenId().getHex(),
-							getInitialTokenQty(txIdToTx, d),
-							getBlockCreated(txIdToTx, d)))
-							.collect(Collectors.toList());
-
-				})
-				.onErrorReturnItem(List.of());
+		//To support legacy fields should be improved in V3
+		return extendedDetails(tokenDetailsRequest);
 	}
 
 	@GetMapping("tokenStats/{tokenId}")
@@ -184,53 +192,133 @@ public class SlpController {
 			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Not a valid tokenId=" + tokenId));
 		}
 
-		return Maybe.zip(detailsRepository.fetchSlpDetails(new SlpTokenId(tokenId)),
+		ExtendedDetailsResponse cached = extendedDetailsResponseCache.getIfPresent(tokenId);
+		if (cached != null) {
+			refresh(tokenId, () -> makeExtendedRequest(tokenId).subscribeOn(schedulers).subscribe());
+			return Single.just(cached);
+		}
+		return makeExtendedRequest(tokenId);
+	}
+
+	private Single<ExtendedDetailsResponse> makeExtendedRequest(@PathVariable String tokenId) {
+		return Maybe.zip(detailsRepository.fetchExtendedDetails(List.of(new SlpTokenId(tokenId))).toMaybe(),
 				transactionRepository.fetchTransaction(tokenId, coin, true),
-				utxoRepository.fetchUtxosWithTokenId(List.of(tokenId), false).toMaybe(), (details, tx, utxos) -> {
-					boolean hasBaton = hasBaton(utxos);
-					BigDecimal quantity = getQuantity(utxos);
-					Integer activeMint = null;
-					Integer lastActiveSend = null;
-					return getExtendedDetailsResponse(details, tx, utxos, hasBaton, quantity, activeMint, lastActiveSend);
+				utxoRepository.fetchMinimalUtxoData(List.of(tokenId), false, Valid.VALID).toMaybe(),
+				transactionRepository.transactionsForTokenId(tokenId).toMaybe(), (details, tx, utxos, numTxs) -> {
+					Optional<ExtendedDetails> extendedDetails = details.stream().findFirst();
+
+					boolean hasBaton = utxos.stream().anyMatch(UtxoMinimalData::isHasBaton);
+					BigDecimal quantity = utxos.stream().map(UtxoMinimalData::getAmount)
+							.reduce(BigDecimal::add).orElse(BigDecimal.ZERO);
+					Integer activeMint = extendedDetails.flatMap(ExtendedDetails::getLastActiveMint).orElse(null);
+					Integer lastActiveSend = extendedDetails.flatMap(ExtendedDetails::getLastActiveSend).orElse(null);
+					ExtendedDetailsResponse extendedDetailsResponse = getExtendedDetailsResponse(extendedDetails.map(ExtendedDetails::getSlpTokenDetails).orElse(null),
+							tx, utxos, hasBaton, quantity, activeMint, lastActiveSend,
+							numTxs);
+
+					Optional.ofNullable(extendedDetailsResponse).ifPresent(d -> {
+						logger.info("Added to cache tokenId={}", tokenId);
+						extendedDetailsResponseCache.put(tokenId, d);
+					});
+					return extendedDetailsResponse;
 				})
 				.doOnError(er -> logger.error("Error fetching extended details tokenId={}", tokenId, er))
-				.onErrorReturnItem(new ExtendedDetailsResponse())
+				.onErrorResumeNext(Maybe.error(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR)))
 				.toSingle(new ExtendedDetailsResponse());
 	}
 
 	@PostMapping("tokenStats")
 	public Single<List<ExtendedDetailsResponse>> extendedDetails(@RequestBody ExtendedDetailsRequest request) {
-		if (request.tokenIds.size() >= 20) {
-			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Batch size cannot be larger than 20"));
+		if (request.tokenIds.size() > MAX_BATCH_SIZE) {
+			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Batch size cannot be larger than " + MAX_BATCH_SIZE));
 		}
 
 		List<String> tokens = request.tokenIds.stream().distinct().collect(Collectors.toList());
-		return Single.zip(detailsRepository.fetchSlpDetails(tokens.stream().map(SlpTokenId::new).collect(Collectors.toList())),
+		List<ExtendedDetailsResponse> cached = new ArrayList<>();
+		for (String token : new ArrayList<>(tokens)) {
+			Optional<ExtendedDetailsResponse> response = refresh(token, () -> makeExtendedRequest(token).subscribeOn(schedulers).subscribe());
+			response.ifPresent(r -> {
+				cached.add(r);
+				tokens.remove(token);
+			});
+		}
+		if (tokens.isEmpty()) {
+			return Single.just(cached);
+		}
+
+		return Single.zip(makeExtendedListRequest(tokens), Single.just(cached), (k, v) -> {
+			List<ExtendedDetailsResponse> result = new ArrayList<>(k);
+			result.addAll(v);
+			return result;
+		});
+	}
+
+	private Single<List<ExtendedDetailsResponse>> makeExtendedListRequest(List<String> tokens) {
+		return Single.zip(detailsRepository.fetchExtendedDetails(tokens.stream().map(SlpTokenId::new).collect(Collectors.toList())),
 				transactionRepository.fetchTransactions(tokens, coin, true),
-				utxoRepository.fetchUtxosWithTokenId(tokens, false), (details, tx, utxos) -> {
-					Map<SlpTokenId, SlpTokenDetails> idSlpTokenDetailsMap = details.stream().collect(Collectors.toMap(SlpTokenDetails::getTokenId, v -> v));
-					Map<String, IndexerTransaction> txIdTx = tx.stream().collect(Collectors.toMap(k -> k.getTransaction().getTxId(), v -> v));
-					Map<String, List<Utxo>> txIdUtxos = utxos.stream().collect(Collectors.groupingBy(Utxo::getTxId));
+				utxoRepository.fetchMinimalUtxoData(tokens, false, Valid.VALID),
+				transactionRepository.transactionsForTokenIds(tokens), (details, txs, utxos, txCountForTokens) -> {
+					Map<SlpTokenId, ExtendedDetails> idSlpTokenDetailsMap = details.stream().collect(Collectors.toMap(k -> k.getSlpTokenDetails().getTokenId(), v -> v));
+					Map<String, IndexerTransaction> txIdTx = txs.stream().collect(Collectors.toMap(k -> k.getTransaction().getTxId(), v -> v));
+					Map<String, List<UtxoMinimalData>> tokenIdUtxos = utxos.stream().collect(Collectors.groupingBy(UtxoMinimalData::getTokenId));
 					return tokens.stream().map(t -> {
-						SlpTokenDetails slpTokenDetails = idSlpTokenDetailsMap.get(new SlpTokenId(t));
-						IndexerTransaction indexerTransaction = txIdTx.get(t);
-						List<Utxo> txUtxos = txIdUtxos.containsKey(t) ? txIdUtxos.get(t) : List.of();
+						ExtendedDetails extendedDetails = idSlpTokenDetailsMap.get(new SlpTokenId(t));
+						SlpTokenDetails slpTokenDetails = extendedDetails.getSlpTokenDetails();
+						IndexerTransaction genesis = txIdTx.get(t);
+						List<UtxoMinimalData> txUtxos = tokenIdUtxos.containsKey(t) ? tokenIdUtxos.get(t) : List.of();
+						Integer activeMint = extendedDetails.getLastActiveMint().orElse(null);
+						Integer lastActiveSend = extendedDetails.getLastActiveSend().orElse(null);
 						boolean hasBaton = hasBaton(txUtxos);
 						BigDecimal quantity = getQuantity(txUtxos);
-						return getExtendedDetailsResponse(slpTokenDetails, indexerTransaction, utxos, hasBaton, quantity, null, null);
+						ExtendedDetailsResponse extendedDetailsResponse = getExtendedDetailsResponse(slpTokenDetails, genesis, utxos, hasBaton, quantity, activeMint, lastActiveSend, txCountForTokens.get(t));
+						Optional.ofNullable(extendedDetailsResponse).ifPresent(d -> {
+							logger.trace("Added to cache tokenId={}", t);
+							extendedDetailsResponseCache.put(t, d);
+						});
+						return extendedDetailsResponse;
 					}).collect(Collectors.toList());
 				})
 				.filter(Objects::nonNull)
-				.doOnError(er -> logger.error("Error fetching extended details tokenIds={}", String.join(":", request.tokenIds), er))
+				.doOnError(er -> logger.error("Error fetching extended details tokenIds={}", String.join(":", tokens), er))
 				.toSingle(List.of())
-				.onErrorReturnItem(List.of());
+				.onErrorResumeNext(e -> Single.error(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error", e)));
+	}
 
+	@GetMapping("/convert/{address}")
+	public Single<AddressConvertResponse> convertAddress(@PathVariable String address) {
+		if (address.contains("simpleledger")) {
+			Address legacy = Address.slpToBase58(address);
+			Address cash = Address.base58ToCash(legacy.getAddress());
+			return Single.just(new AddressConvertResponse(address, cash.getAddress(), legacy.getAddress()));
+		}
+
+		if (address.contains("bitcoincash")) {
+			Address legacy = Address.cashAddressToBase58(address);
+			Address slp = Address.base58ToSlp(legacy.getAddress());
+			return Single.just(new AddressConvertResponse(slp.getAddress(), address, legacy.getAddress()));
+		}
+
+		Address slp = Address.base58ToSlp(address);
+		Address cash = Address.base58ToCash(address);
+		return Single.just(new AddressConvertResponse(slp.getAddress(), cash.getAddress(), address));
+	}
+
+	@PostMapping("/convert")
+	public Single<List<AddressConvertResponse>> convertAddresses(@RequestBody AddressConverterRequest request) {
+		if (request.addresses.size() > 10000) {
+			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Batch size cannot be larger than " + 10000));
+		}
+
+		return Flowable.fromIterable(request.addresses)
+				.flatMapSingle(this::convertAddress)
+				.toList();
 	}
 
 	@GetMapping("balancesForAddress/{address}")
 	public Single<List<BalanceResponse>> slpBalanceForAddress(@PathVariable String address) {
-		Address base58 = Address.slpToBase58(address);
-		return utxoRepository.fetchSlpUtxosForAddress(base58, coin, false)
+		Address base58 = getAddress(address);
+
+		return utxoRepository.fetchSlpUtxosForAddress(base58, coin, false, Valid.VALID)
 				.flatMap(utxos -> {
 					Map<String, List<SlpUtxo>> utxosPerTokenId = utxos.stream().map(e -> e.getSlpUtxo().get())
 							.collect(Collectors.groupingBy(k -> k.getSlpTokenId().getHex()));
@@ -245,15 +333,27 @@ public class SlpController {
 				});
 	}
 
+	private Address getAddress(String address) {
+		try {
+			return Address.slpToBase58(address);
+		} catch (Exception e) {
+			try {
+				return Address.cashAddressToBase58(address);
+			} catch (Exception b) {
+				return Address.create(address);
+			}
+		}
+	}
+
 	@PostMapping("balancesForAddress")
 	public Single<List<List<BalanceResponse>>> slpBalanceForAddress(@RequestBody BalanceForAddressRequest request) {
 		if (request.addresses.size() >= 20) {
 			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Batch size cannot be larger than 20"));
 		}
-		List<Address> addresses = request.addresses.stream().map(Address::slpToBase58).collect(Collectors.toList());
+		List<Address> addresses = request.addresses.stream().map(this::getAddress).collect(Collectors.toList());
 
 		return Flowable.fromIterable(addresses)
-				.flatMapSingle(address -> utxoRepository.fetchSlpUtxosForAddress(address, coin, false))
+				.flatMapSingle(address -> utxoRepository.fetchSlpUtxosForAddress(address, coin, false, Valid.VALID))
 				.flatMapSingle(utxos -> {
 					Map<String, List<SlpUtxo>> utxosPerTokenId = utxos.stream().map(e -> e.getSlpUtxo().get())
 							.collect(Collectors.groupingBy(k -> k.getSlpTokenId().getHex()));
@@ -278,7 +378,7 @@ public class SlpController {
 			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Not a valid tokenId=" + tokenId));
 		}
 
-		return utxoRepository.fetchUtxosWithTokenId(List.of(tokenId), false)
+		return utxoRepository.fetchUtxosWithTokenId(List.of(tokenId), false, Valid.VALID)
 				.map(utxos -> {
 					Map<Address, List<Utxo>> addressTokenUtxos = utxos.stream()
 							.filter(e -> e.getSlpUtxo().isPresent())
@@ -290,7 +390,7 @@ public class SlpController {
 										.map(e -> e.getSlpUtxo().get())
 										.map(SlpUtxo::getAmount).reduce(BigDecimal::add).orElse(BigDecimal.ZERO);
 								return new BalanceForTokenResponse(totalTokenBalance,
-										totalTokenBalance.toString(),
+										totalTokenBalance.toPlainString(),
 										Address.base58ToSlp(address.getAddress()).getAddress(), tokenId);
 							}).collect(Collectors.toList());
 				})
@@ -299,8 +399,8 @@ public class SlpController {
 	}
 
 	@PostMapping("balancesForToken")
-	public Single<List<List<BalanceForTokenResponse>>> balanceForToken(@PathVariable BalanceForTokenRequest request) {
-		if (request.tokenIds.size() >= 5) {
+	public Single<List<List<BalanceForTokenResponse>>> balanceForToken(@RequestBody BalanceForTokenRequest request) {
+		if (request.tokenIds.size() >= 2) {
 			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Maximum 5 tokenIds are allowed=" + request.tokenIds.size()));
 		}
 
@@ -311,7 +411,7 @@ public class SlpController {
 		}
 
 		return Flowable.fromIterable(request.tokenIds)
-				.flatMapSingle(tokenId -> utxoRepository.fetchUtxosWithTokenId(List.of(tokenId), false)
+				.flatMapSingle(tokenId -> utxoRepository.fetchUtxosWithTokenId(List.of(tokenId), false, Valid.VALID)
 						.map(utxos -> {
 							Map<Address, List<Utxo>> addressTokenUtxos = utxos.stream()
 									.filter(e -> e.getSlpUtxo().isPresent())
@@ -323,7 +423,7 @@ public class SlpController {
 												.map(e -> e.getSlpUtxo().get())
 												.map(SlpUtxo::getAmount).reduce(BigDecimal::add).orElse(BigDecimal.ZERO);
 										return new BalanceForTokenResponse(totalTokenBalance,
-												totalTokenBalance.toString(),
+												totalTokenBalance.toPlainString(),
 												Address.base58ToSlp(address.getAddress()).getAddress(), tokenId);
 									}).collect(Collectors.toList());
 						})
@@ -334,12 +434,12 @@ public class SlpController {
 
 	@GetMapping("balance/{address}/{tokenId}")
 	public Single<BalanceResponse> slpBalanceForAddressToken(@PathVariable String address, @PathVariable String tokenId) {
-		Address base58 = Address.slpToBase58(address);
+		Address base58 = getAddress(address);
 		if (tokenId.length() != 64) {
 			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Not a valid tokenId=" + tokenId));
 		}
 
-		return utxoRepository.fetchSlpUtxosForAddress(base58, coin, false)
+		return utxoRepository.fetchSlpUtxosForAddress(base58, coin, false, Valid.VALID)
 				.zipWith(detailsRepository.fetchSlpDetails(new SlpTokenId(tokenId))
 						.toSingle(new SlpTokenDetails(new SlpTokenId(tokenId), "", "", -1, "", null)), ((utxos, details) -> {
 					Map<String, List<SlpUtxo>> utxosPerTokenId = utxos.stream().map(e -> e.getSlpUtxo().get())
@@ -354,8 +454,8 @@ public class SlpController {
 
 	@PostMapping("balance")
 	public Single<List<BalanceResponse>> slpBalanceForAddressTokens(@RequestBody List<BalanceAddressTokenRequest> requests) {
-		if (requests.size() >= 5) {
-			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Maximum 5 tokens are allowed=" + requests.size()));
+		if (requests.size() > 100) {
+			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Maximum 100 tokens are allowed=" + requests.size()));
 		}
 
 		for (BalanceAddressTokenRequest request : requests) {
@@ -365,7 +465,7 @@ public class SlpController {
 		}
 
 		return Flowable.fromIterable(requests)
-				.flatMapSingle(req -> utxoRepository.fetchSlpUtxosForAddress(Address.slpToBase58(req.address), coin, false)
+				.flatMapSingle(req -> utxoRepository.fetchSlpUtxosForAddress(getAddress(req.address), coin, false, Valid.VALID)
 						.zipWith(detailsRepository.fetchSlpDetails(new SlpTokenId(req.tokenId)).timeout(10, TimeUnit.SECONDS)
 								.toSingle(new SlpTokenDetails(new SlpTokenId(req.tokenId), "", "", -1, "", null)), (utxos, details) -> {
 							Map<String, List<SlpUtxo>> utxosPerTokenId = utxos.stream().map(e -> e.getSlpUtxo().get())
@@ -389,7 +489,7 @@ public class SlpController {
 			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token does not exist=" + tokenId));
 		}
 
-		return transactionRepository.fetchTransactions(Address.slpToBase58(address), Coin.BCH)
+		return transactionRepository.fetchTransactions(getAddress(address), Coin.BCH)
 				.toFlowable()
 				.flatMap(Flowable::fromIterable)
 				.filter(transaction -> {
@@ -399,31 +499,50 @@ public class SlpController {
 							.anyMatch(u -> u.getSlpTokenId().getHex().equals(tokenId));
 				})
 				.map(filteredTx -> {
-					boolean hasBaton = hasBaton(filteredTx.getTransaction().getOutputs());
+					boolean hasBaton = hasUtxoBaton(filteredTx.getTransaction().getOutputs());
 					String transactionType = filteredTx.getTransaction().getOutputs().stream()
 							.filter(u -> u.getSlpUtxo().isPresent())
 							.findFirst()
 							.map(u -> u.getSlpUtxo().get().getTokenTransactionType())
 							.orElse("");
 
+					Integer tokenType = filteredTx.getTransaction().getOutputs().stream()
+							.filter(u -> u.getSlpUtxo().isPresent())
+							.findFirst()
+							.map(u -> u.getSlpUtxo().get().getTokenTypeHex())
+							.map(Hex::decode)
+							.map(ByteUtils.INSTANCE::toInt)
+							.orElse(-1);
+
+					List<Output> outputs = filteredTx.getTransaction().getOutputs().stream()
+							.filter(e -> !e.getAddress().isOpReturn())
+							.filter(e -> e.getSlpUtxo().isPresent())
+							.map(utxo -> new Output(
+									Address.base58ToSlp(utxo.getAddress().getAddress()).getAddress(),
+									utxo.getSlpUtxo().map(SlpUtxo::getAmount)
+											.map(BigDecimal::stripTrailingZeros)
+											.orElse(utxo.getAmount()).toPlainString())
+							)
+
+							.collect(Collectors.toList());
+
 					Detail detail = new Detail(slpTokenDetails.getDecimals(),
 							tokenId,
 							transactionType,
-							null,
+							tokenType,
 							slpTokenDetails.getDocumentUri(),
 							null,
 							slpTokenDetails.getTicker(),
 							slpTokenDetails.getName(),
 							null,
 							hasBaton,
-							filteredTx.getTransaction().getOutputs().stream()
-									.map(utxo -> new Output(utxo.getAddress().getAddress(), utxo.getAmount().toString())).collect(Collectors.toList()));
+							outputs);
 					Details details = new Details(filteredTx.getTransaction().getSlpValid().orElse(SlpValid.unknown()).getValid() == Valid.VALID, detail);
 
 					return new TransactionTokenAddress(
 							filteredTx.getTransaction().getTxId(),
 							details,
-							"",
+							null,
 							73
 					);
 				})
@@ -434,8 +553,8 @@ public class SlpController {
 
 	@PostMapping("/transactions")
 	public Single<List<List<TransactionTokenAddress>>> transactionsPerTokenAddress(@RequestBody List<BalanceAddressTokenRequest> requests) {
-		if (requests.size() >= 3) {
-			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Maximum 3 tokens are allowed=" + requests.size()));
+		if (requests.size() >= 100) {
+			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Maximum 100 tokens are allowed=" + requests.size()));
 		}
 
 		for (BalanceAddressTokenRequest request : requests) {
@@ -452,15 +571,17 @@ public class SlpController {
 			detailsMap.put(request.tokenId, slpTokenDetails);
 		}
 		return Flowable.fromIterable(requests)
-				.flatMapSingle(req -> transactionRepository.fetchTransactions(Address.slpToBase58(req.address), Coin.BCH)
+				.flatMapSingle(req -> transactionRepository.fetchTransactions(getAddress(req.address), Coin.BCH)
 						.toFlowable()
 						.flatMap(Flowable::fromIterable)
-						.filter(transaction -> transaction.getTransaction().getOutputs().stream()
-								.filter(u -> u.getSlpUtxo().isPresent())
-								.map(u -> u.getSlpUtxo().get())
-								.anyMatch(u -> u.getSlpTokenId().getHex().equals(req.tokenId)))
+						.filter(transaction -> {
+							return transaction.getTransaction().getOutputs().stream()
+									.filter(u -> u.getSlpUtxo().isPresent())
+									.map(u -> u.getSlpUtxo().get())
+									.anyMatch(u -> u.getSlpTokenId().getHex().equals(req.tokenId));
+						})
 						.map(filteredTx -> {
-							boolean hasBaton = hasBaton(filteredTx.getTransaction().getOutputs());
+							boolean hasBaton = hasUtxoBaton(filteredTx.getTransaction().getOutputs());
 							SlpTokenDetails slpTokenDetails = detailsMap.get(req.tokenId);
 							String transactionType = filteredTx.getTransaction().getOutputs().stream()
 									.filter(u -> u.getSlpUtxo().isPresent())
@@ -468,10 +589,18 @@ public class SlpController {
 									.map(u -> u.getSlpUtxo().get().getTokenTransactionType())
 									.orElse("");
 
+							Integer tokenType = filteredTx.getTransaction().getOutputs().stream()
+									.filter(u -> u.getSlpUtxo().isPresent())
+									.findFirst()
+									.map(u -> u.getSlpUtxo().get().getTokenTypeHex())
+									.map(Hex::decode)
+									.map(ByteUtils.INSTANCE::toInt)
+									.orElse(-1);
+
 							Detail detail = new Detail(slpTokenDetails.getDecimals(),
 									req.tokenId,
 									transactionType,
-									null,
+									tokenType,
 									slpTokenDetails.getDocumentUri(),
 									null,
 									slpTokenDetails.getTicker(),
@@ -479,13 +608,22 @@ public class SlpController {
 									null,
 									hasBaton,
 									filteredTx.getTransaction().getOutputs().stream()
-											.map(utxo -> new Output(utxo.getAddress().getAddress(), utxo.getAmount().toString())).collect(Collectors.toList()));
+											.filter(utxo -> !utxo.getAddress().isOpReturn())
+											.filter(e -> e.getSlpUtxo().isPresent())
+											.map(utxo -> {
+												return new Output(
+														Address.base58ToSlp(utxo.getAddress().getAddress()).getAddress(),
+														utxo.getSlpUtxo().map(SlpUtxo::getAmount)
+																.map(BigDecimal::stripTrailingZeros)
+																.orElse(utxo.getAmount()).toPlainString());
+											})
+											.collect(Collectors.toList()));
 							Details details = new Details(filteredTx.getTransaction().getSlpValid().orElse(SlpValid.unknown()).getValid() == Valid.VALID, detail);
 
 							return new TransactionTokenAddress(
 									filteredTx.getTransaction().getTxId(),
 									details,
-									"",
+									null,
 									73
 							);
 						})
@@ -515,51 +653,27 @@ public class SlpController {
 							.map(SlpUtxo::getAmount).reduce(BigDecimal::add).orElse(BigDecimal.ZERO);
 
 					BigDecimal burnTotal = inputTokenValue.subtract(totaltTokenOut);
+
 					return new BurnCountResponse(transactionId, inputTokenValue, totaltTokenOut, burnTotal);
 				})
+				.doOnError(er -> logger.error("Could not calculate burnTotal txId={}", transactionId, er))
 				.onErrorReturnItem(new BurnCountResponse())
 				.toSingle(new BurnCountResponse());
 	}
 
 	@PostMapping("burnTotal")
 	public Single<List<BurnCountResponse>> burnTotal(@RequestBody BurnTotalRequest request) {
-		if (request.txIds.size() >= 3) {
-			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Maximum 3 tokens are allowed=" + request.txIds.size()));
+		if (request.txids.size() >= 3) {
+			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Maximum 3 tokens are allowed=" + request.txids.size()));
 		}
 
-		for (String txId : request.txIds) {
+		for (String txId : request.txids) {
 			if (txId.length() != 64) {
 				return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Not a valid transactionId=" + txId));
 			}
 		}
-		return Flowable.fromIterable(request.txIds)
+		return Flowable.fromIterable(request.txids)
 				.flatMapSingle(this::burnCount)
-				.toList();
-	}
-
-	@GetMapping("/convert/{address}")
-	public Single<AddressConvertResponse> convertAddress(@PathVariable String address) {
-		if (address.contains("simpleledger")) {
-			Address legacy = Address.slpToBase58(address);
-			Address cash = Address.base58ToCash(legacy.getAddress());
-			return Single.just(new AddressConvertResponse(address, cash.getAddress(), legacy.getAddress()));
-		}
-
-		if (address.contains("bitcoincash")) {
-			Address legacy = Address.cashAddressToBase58(address);
-			Address slp = Address.base58ToSlp(legacy.getAddress());
-			return Single.just(new AddressConvertResponse(slp.getAddress(), address, legacy.getAddress()));
-		}
-
-		Address slp = Address.base58ToSlp(address);
-		Address cash = Address.base58ToCash(address);
-		return Single.just(new AddressConvertResponse(slp.getAddress(), cash.getAddress(), address));
-	}
-
-	@PostMapping("/convert/")
-	public Single<List<AddressConvertResponse>> convertAddresses(@RequestBody AddressConverterRequest request) {
-		return Flowable.fromIterable(request.addresses)
-				.flatMapSingle(this::convertAddress)
 				.toList();
 	}
 
@@ -571,7 +685,7 @@ public class SlpController {
 
 		Optional<InsightsResponse> txInfo = insightsFacade.getTxInfo(txId);
 		if (txInfo.isEmpty()) {
-			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Not a valid transactionId=" + txId));
+			return Single.error(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Could not fetch transactionId=" + txId));
 		}
 
 		return transactionRepository.fetchTransaction(txId, Coin.BCH, true)
@@ -604,6 +718,12 @@ public class SlpController {
 				});
 	}
 
+	private List<IndexerTransaction> validTxs(List<IndexerTransaction> txs) {
+		return txs.stream()
+				.filter(t -> t.getTransaction().getSlpValid().map(SlpValid::getValid).orElse(Valid.UNKNOWN) == Valid.VALID)
+				.collect(Collectors.toList());
+	}
+
 	private long getBlockCreated(Map<String, IndexerTransaction> txIdToTx, SlpTokenDetails d) {
 		return txIdToTx.get(d.getTokenId().getHex()) != null ? txIdToTx.get(d.getTokenId().getHex()).getTransaction().getBlockHeight().orElse(-1) : -1;
 	}
@@ -621,10 +741,23 @@ public class SlpController {
 				.reduce(BigDecimal::add).orElse(BigDecimal.ZERO);
 	}
 
-	private ExtendedDetailsResponse getExtendedDetailsResponse(SlpTokenDetails details, IndexerTransaction tx, List<Utxo> utxos, boolean hasBaton, BigDecimal quantity, Integer activeMint, Integer lastActiveSend) {
+	private ExtendedDetailsResponse getExtendedDetailsResponse(SlpTokenDetails details, IndexerTransaction tx, List<UtxoMinimalData> utxos, boolean hasBaton, BigDecimal quantity, Integer activeMint, Integer lastActiveSend, BigDecimal numTxs) {
 		if (details == null || tx == null || utxos == null) {
 			return null;
 		}
+
+		String hexString = tx.getTransaction().getOutputs().stream()
+				.filter(e -> e.getSlpUtxo().isPresent())
+				.map(e -> e.getSlpUtxo().get().getTokenTypeHex())
+				.findFirst().orElse(null);
+
+		BigDecimal initialTokenValue = getInitialTokenValue(tx);
+		BigDecimal totalMinted = getTotalMinted(utxos);
+		BigDecimal circulatingSupply = quantity;
+		BigDecimal totalBurned = initialTokenValue.add(totalMinted).subtract(circulatingSupply).abs();
+		boolean createdBaton = tx.getTransaction().getOutputs().stream().filter(e -> e.getSlpUtxo().isPresent())
+				.anyMatch(u -> u.getSlpUtxo().get().hasBaton());
+
 		return new ExtendedDetailsResponse(
 				details.getDecimals(),
 				details.getDocumentUri(),
@@ -632,43 +765,88 @@ public class SlpController {
 				details.getName(),
 				hasBaton,
 				details.getTokenId().getHex(),
-				getInitialTokenValue(tx),
+				initialTokenValue,
 				tx.getTransaction().getBlockHeight().orElse(-1),
 				quantity,
+				lastActiveSend,
+				activeMint,
+				hexString,
+				tx.getTransaction().getTime().toEpochMilli(),
+				tx.getTransaction().getTime().toString(),
+				totalMinted,
+				totalBurned,
+				circulatingSupply.toPlainString(),
 				new BigDecimal(utxos.size()),
 				numberValidAddresses(utxos),
 				getLockedSatoshis(utxos),
+				null,
+				numTxs,
+				getBatonStatus(hasBaton, createdBaton),
 				lastActiveSend,
-				activeMint);
+				activeMint
+		);
 	}
 
-	private int numberValidAddresses(List<Utxo> utxos) {
+	private long numberValidAddresses(List<UtxoMinimalData> utxos) {
 		return utxos.stream().map(e -> e.getAddress().getAddress())
 				.collect(Collectors.toSet())
 				.size();
 	}
 
-	private BigDecimal getQuantity(List<Utxo> utxos) {
+	private BigDecimal getQuantity(List<UtxoMinimalData> utxos) {
 		return utxos.stream()
-				.filter(e -> e.getSlpUtxo().isPresent())
-				.map(e -> e.getSlpUtxo().get())
-				.map(SlpUtxo::getAmount)
+				.map(UtxoMinimalData::getAmount)
 				.reduce(BigDecimal::add).orElse(BigDecimal.ZERO);
 	}
 
-	private BigDecimal getLockedSatoshis(List<Utxo> utxos) {
-		return utxos.stream()
-				.map(Utxo::getAmount)
-				.reduce(BigDecimal::add).orElse(BigDecimal.ZERO);
-
+	private String getBatonStatus(boolean hasBaton, boolean createdBaton) {
+		if (hasBaton) {
+			return "ALIVE";
+		}
+		if (createdBaton) {
+			return "DEAD";
+		}
+		return "NEVER_CREATED";
 	}
 
-	private boolean hasBaton(List<Utxo> utxos) {
+	private BigDecimal getLockedSatoshis(List<UtxoMinimalData> utxos) {
+		return utxos.stream()
+				.map(UtxoMinimalData::getAmount)
+				.reduce(BigDecimal::add).orElse(BigDecimal.ZERO);
+	}
+
+	private BigDecimal getTotalMinted(List<UtxoMinimalData> utxos) {
+		return utxos.stream()
+				.filter(UtxoMinimalData::isMint)
+				.map(UtxoMinimalData::getSatoshisValue)
+				.reduce(BigDecimal::add).orElse(BigDecimal.ZERO);
+	}
+
+	private boolean hasBaton(List<UtxoMinimalData> utxos) {
+		if (utxos == null) {
+			return false;
+		}
+
+		return utxos.stream().anyMatch(UtxoMinimalData::isHasBaton);
+	}
+
+	private boolean hasUtxoBaton(List<Utxo> utxos) {
 		if (utxos == null) {
 			return false;
 		}
 
 		return utxos.stream().filter(e -> e.getSlpUtxo().isPresent())
 				.anyMatch(u -> u.getSlpUtxo().get().hasBaton());
+	}
+
+	private Optional<ExtendedDetailsResponse> refresh(String tokenId, Runnable runnable) {
+		ExtendedDetailsResponse ifPresent = extendedDetailsResponseCache.getIfPresent(tokenId);
+		if (ifPresent != null) {
+			if (!bigTokens.contains(tokenId)) {
+				runnable.run();
+			}
+			return Optional.of(ifPresent);
+		}
+		return Optional.empty();
 	}
 }

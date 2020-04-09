@@ -6,7 +6,7 @@ public class Detail {
 	public int decimals;
 	public String tokenIdHex;
 	public String transactionType;
-	public String versionType;
+	public Integer versionType;
 
 	public String documentUri;
 	public String documentSha256Hex;
@@ -14,12 +14,12 @@ public class Detail {
 	public String name;
 	public Boolean txnBatonVout;
 	public boolean txnContainsBaton;
-	List<Output> outputs;
+	public List<Output> outputs;
 
 	public Detail(int decimals,
 			String tokenIdHex,
 			String transactionType,
-			String versionType,
+			Integer versionType,
 			String documentUri,
 			String documentSha256Hex,
 			String symbol,
@@ -39,4 +39,6 @@ public class Detail {
 		this.txnContainsBaton = txnContainsBaton;
 		this.outputs = outputs;
 	}
+
+
 }

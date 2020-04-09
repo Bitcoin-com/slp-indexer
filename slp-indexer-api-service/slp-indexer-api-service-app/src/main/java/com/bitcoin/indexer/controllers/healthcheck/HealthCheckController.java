@@ -51,8 +51,7 @@ public class HealthCheckController {
 					.url(writerIp + "/api/v1/health")
 					.get()
 					.build();
-			try {
-				Response execute = okHttpClient.newCall(request).execute();
+			try (Response execute = okHttpClient.newCall(request).execute()) {
 				if (!execute.isSuccessful()) {
 					logger.error("Writer is not responding will assume it is not working correctly failover");
 					throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);

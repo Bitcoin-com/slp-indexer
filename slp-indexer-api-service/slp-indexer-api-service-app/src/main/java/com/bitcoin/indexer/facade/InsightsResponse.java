@@ -4,8 +4,8 @@ import java.util.List;
 
 public class InsightsResponse {
 	public String txid;
-	public int version;
-	public int locktime;
+	public Long version;
+	public Long locktime;
 	public List<Vin> vin;
 	public List<Vout> vout;
 	public String blockhash;
@@ -24,8 +24,10 @@ public class InsightsResponse {
 		public long sequence;
 		public int n;
 		public String value;
+		public String addr;
 		public String legacyAddress;
 		public String cashAddress;
+		public ScriptSig scriptSig;
 
 	}
 
@@ -36,7 +38,6 @@ public class InsightsResponse {
 		public String spentTxId;
 		public Integer spentIndex;
 		public Integer spentHeight;
-
 	}
 
 	public static class ScriptSig {
@@ -50,6 +51,5 @@ public class InsightsResponse {
 		public List<String> addresses;
 		public String type;
 		public List<String> cashAddrs;
-
 	}
 }
