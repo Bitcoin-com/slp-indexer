@@ -36,6 +36,7 @@ import com.bitcoin.indexer.handlers.TransactionHandlerSlpImpl;
 import com.bitcoin.indexer.handlers.UtxoHandler;
 import com.bitcoin.indexer.handlers.UtxoHandlerImpl;
 import com.bitcoin.indexer.listener.BitcoinJListener;
+import com.bitcoin.indexer.listener.IndexerTransactionCreator;
 import com.bitcoin.indexer.repository.BlockRepository;
 import com.bitcoin.indexer.repository.BlockRepositoryImpl;
 import com.bitcoin.indexer.repository.SlpDetailsRepository;
@@ -104,8 +105,14 @@ public class Config {
 			BitcoinJConverters bitcoinJConverters,
 			BlockHandler blockHandler,
 			UtxoRepository utxoRepository,
-			@Value("${is.full.mode:false}") String isFullMode) {
-		return new BitcoinJListener(transactionHandler, networkParameters, blockHandler, blockStore, coin, bitcoinJConverters, Boolean.parseBoolean(isFullMode), utxoRepository);
+			@Value("${is.full.mode:false}") String isFullMode,
+			IndexerTransactionCreator indexerTransactionCreator) {
+		return new BitcoinJListener(transactionHandler, networkParameters, blockHandler, blockStore, coin, bitcoinJConverters, Boolean.parseBoolean(isFullMode), utxoRepository, indexerTransactionCreator);
+	}
+
+	@Bean
+	public IndexerTransactionCreator indexerTransactionCreator(UtxoRepository utxoRepository, Coin coin) {
+		return new IndexerTransactionCreator(utxoRepository, coin);
 	}
 
 	@Bean

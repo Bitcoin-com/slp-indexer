@@ -14,11 +14,11 @@ import com.bitcoin.indexer.blockchain.domain.slp.ExtendedDetails;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenDetails;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenId;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid.Valid;
+import com.bitcoin.indexer.core.Coin;
 import com.bitcoin.indexer.facade.BitcoinJConverters;
 import com.bitcoin.indexer.repository.BlockRepository;
 import com.bitcoin.indexer.repository.SlpDetailsRepository;
 import com.bitcoin.indexer.repository.UtxoRepository;
-import com.bitcoin.indexer.core.Coin;
 
 import io.reactivex.Maybe;
 import io.reactivex.Single;
@@ -58,6 +58,11 @@ public class TestBitcoinJConverter {
 		}
 
 		@Override
+		public Single<List<Utxo>> fetchUtxosFromAddressTokenId(Address address, String tokenId, Coin coin, boolean useCache, Valid parentValidation) {
+			return null;
+		}
+
+		@Override
 		public Single<List<Utxo>> fetchSlpUtxosForAddress(Address address, Coin coin, boolean useCache, Valid parentValid) {
 			return null;
 		}
@@ -85,6 +90,11 @@ public class TestBitcoinJConverter {
 
 		@Override
 		public Single<List<Utxo>> fetchUtxo(List<Input> inputs, Coin coin) {
+			return null;
+		}
+
+		@Override
+		public Single<List<Utxo>> fetchUtxoNoCache(List<Input> inputs, Coin coin) {
 			return null;
 		}
 

@@ -90,6 +90,11 @@ public class BitcoinJConvertersTest {
 		}
 
 		@Override
+		public Single<List<Utxo>> fetchUtxosFromAddressTokenId(Address address, String tokenId, Coin coin, boolean useCache, Valid parentValidation) {
+			return null;
+		}
+
+		@Override
 		public Single<List<Utxo>> fetchSlpUtxosForAddress(Address address, Coin coin, boolean useCache, Valid parentValid) {
 			return null;
 		}
@@ -117,6 +122,11 @@ public class BitcoinJConvertersTest {
 		@Override
 		public Single<List<Utxo>> fetchUtxo(List<Input> inputs, Coin coin) {
 			return Single.just(List.of());
+		}
+
+		@Override
+		public Single<List<Utxo>> fetchUtxoNoCache(List<Input> inputs, Coin coin) {
+			return null;
 		}
 
 		@Override

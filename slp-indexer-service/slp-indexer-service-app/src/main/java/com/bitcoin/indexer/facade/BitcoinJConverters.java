@@ -9,6 +9,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import org.bitcoinj.core.Coin;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.NetworkParameters;
 import org.bitcoinj.core.Sha256Hash;
@@ -32,7 +33,6 @@ import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenDetails;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpUtxoParser;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid;
 import com.bitcoin.indexer.calculators.FeeCalculator;
-import com.bitcoin.indexer.core.Coin;
 import com.bitcoin.indexer.facade.validators.SlpValidatorFacade;
 import com.bitcoin.indexer.repository.BlockRepository;
 import com.bitcoin.indexer.repository.SlpDetailsRepository;
@@ -44,7 +44,7 @@ public class BitcoinJConverters {
 	private SlpValidatorFacade slpValidatorFacade;
 	private SlpDetailsRepository slpDetailsRepository;
 	private UtxoRepository utxoRepository;
-	private Coin coin;
+	private com.bitcoin.indexer.core.Coin coin;
 	private BlockRepository blockRepository;
 	private BigInteger pastBlockWork;
 
@@ -52,7 +52,7 @@ public class BitcoinJConverters {
 
 	public BitcoinJConverters(SlpDetailsRepository slpDetailsRepository,
 			UtxoRepository utxoRepository,
-			Coin coin,
+			com.bitcoin.indexer.core.Coin coin,
 			BlockRepository blockRepository) {
 		this.slpDetailsRepository = Objects.requireNonNull(slpDetailsRepository);
 		this.utxoRepository = Objects.requireNonNull(utxoRepository);
@@ -315,7 +315,7 @@ public class BitcoinJConverters {
 		}
 	}
 
-	private static BigDecimal fromCoin(org.bitcoinj.core.Coin coin) {
+	private static BigDecimal fromCoin(Coin coin) {
 		return new BigDecimal(coin.value);
 	}
 

@@ -2,7 +2,9 @@ package com.bitcoin.indexer.facade.validators;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,7 +50,9 @@ public class SendValidatorAssumeParentValid implements SlpValidatorFacade {
 			}
 		}
 
-		for (Input input : inputs) {
+		Map<Integer, IndexerTransaction> inputIndex = new HashMap<>();
+		for (int i = 0, inputsSize = inputs.size(); i < inputsSize; i++) {
+			Input input = inputs.get(i);
 			IndexerTransaction prevTx = transactionRepository.fetchTransaction(input.getTxId(), Coin.BCH, true).blockingGet();
 			if (prevTx == null) {
 				//We assume that we already have saved all previous SLP txs that are needed for this tx.
@@ -65,6 +69,7 @@ public class SendValidatorAssumeParentValid implements SlpValidatorFacade {
 			}
 
 			prevTxs.add(prevTx.getTransaction().getTxId());
+			inputIndex.put(i, prevTx);
 
 			if (prevTx.getTransaction().getOutputs().stream().filter(utxo -> utxo.getSlpUtxo().isPresent())
 					.map(utxo -> utxo.getSlpUtxo().get())
@@ -83,6 +88,17 @@ public class SendValidatorAssumeParentValid implements SlpValidatorFacade {
 						.filter(e -> e.getSlpTokenId().getHex().equals(tokenId))
 						.map(SlpUtxo::getAmount).orElse(BigDecimal.ZERO));
 			}
+		}
+
+		if (inputIndex.containsKey(0) && inputIndex.containsKey(1)) {
+			IndexerTransaction first = inputIndex.get(0);
+			IndexerTransaction second = inputIndex.get(1);
+			if (first.getTransaction().getSlpValid().map(SlpValid::getValid).filter(e -> e == Valid.VALID).isPresent()) {
+				if (second.getTransaction().getSlpValid().map(SlpValid::getValid).filter(e -> e == Valid.VALID).isPresent()) {
+
+				}
+			}
+
 		}
 
 		if (totalPreviousTxTokenValue.signum() == 0 && currentTransactionTotalSlpTokenValue.signum() == 0) {

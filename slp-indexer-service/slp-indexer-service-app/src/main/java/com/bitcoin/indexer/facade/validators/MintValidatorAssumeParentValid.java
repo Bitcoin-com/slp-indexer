@@ -1,7 +1,10 @@
 package com.bitcoin.indexer.facade.validators;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,7 +48,11 @@ public class MintValidatorAssumeParentValid implements SlpValidatorFacade {
 			}
 		}
 
-		for (Input input : inputs) {
+		Map<Input, IndexerTransaction> prevTxs = new HashMap<>();
+		Map<Integer, IndexerTransaction> indexPrevTx = new HashMap<>();
+
+		for (int i = 0; i < inputs.size(); i++) {
+			Input input = inputs.get(i);
 			IndexerTransaction prevTx = transactionRepository.fetchTransaction(input.getTxId(), Coin.BCH, true).blockingGet();
 			if (prevTx == null) {
 				//We assume that we already have saved all previous SLP txs that are needed for this tx.
@@ -60,6 +67,22 @@ public class MintValidatorAssumeParentValid implements SlpValidatorFacade {
 					.noneMatch(slpUtxo -> slpUtxo.getSlpTokenId().getHex().equals(tokenId))) {
 				continue;
 			}
+			prevTxs.put(input, prevTx);
+			indexPrevTx.put(i, prevTx);
+		}
+
+		boolean shouldSkipValidCheck = false;
+		if (indexPrevTx.containsKey(0) && indexPrevTx.containsKey(1)) {
+			if (indexPrevTx.get(0).getTransaction().getSlpValid().map(e -> e.getValid() == Valid.INVALID).isPresent()) {
+				if (indexPrevTx.get(1).getTransaction().getSlpValid().map(e -> e.getValid() == Valid.VALID).isPresent()) {
+					shouldSkipValidCheck = true;
+				}
+			}
+		}
+
+		for (Entry<Input, IndexerTransaction> entry : prevTxs.entrySet()) {
+			Input input = entry.getKey();
+			IndexerTransaction prevTx = entry.getValue();
 
 			if (prevTx.getTransaction().getOutputs().get(input.getIndex())
 					.getSlpUtxo().map(slpUtxo -> !slpUtxo.getTokenType().equals(tokenType)).orElse(false)) {
@@ -68,7 +91,7 @@ public class MintValidatorAssumeParentValid implements SlpValidatorFacade {
 			}
 
 			if (prevTx.getTransaction()
-					.getSlpValid().map(prevValid -> prevValid.getValid() == Valid.INVALID).orElse(false)) {
+					.getSlpValid().map(prevValid -> prevValid.getValid() == Valid.INVALID).orElse(false) && !shouldSkipValidCheck) {
 				logger.info("Minting requires valid parent txId={} prevTx={}", txId, prevTx.getTransaction().getTxId());
 				return SlpValid.invalid("Minting requires valid parent txId=" + txId + "  prevTx=" + prevTx);
 			}
@@ -84,5 +107,9 @@ public class MintValidatorAssumeParentValid implements SlpValidatorFacade {
 		logger.info("Invalid mint for txId={} currentTxValue={}", txId, currentTransactionTotalSlpTokenValue);
 
 		return SlpValid.invalid("Invalid mint for txId=" + txId + " currentTxValue=" + currentTransactionTotalSlpTokenValue);
+	}
+
+	private String key(String txId, int index) {
+		return txId + index;
 	}
 }

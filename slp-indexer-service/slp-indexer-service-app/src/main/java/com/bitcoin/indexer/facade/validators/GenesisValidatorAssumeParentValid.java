@@ -1,7 +1,10 @@
 package com.bitcoin.indexer.facade.validators;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.stream.Stream;
 
@@ -14,9 +17,9 @@ import com.bitcoin.indexer.blockchain.domain.Utxo;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpTokenType;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpUtxo;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid;
-import com.bitcoin.indexer.core.Coin;
 import com.bitcoin.indexer.repository.TransactionRepository;
 import com.bitcoin.indexer.repository.UtxoRepository;
+import com.bitcoin.indexer.core.Coin;
 
 public class GenesisValidatorAssumeParentValid implements SlpValidatorFacade {
 	private TransactionRepository transactionRepository;
@@ -45,17 +48,52 @@ public class GenesisValidatorAssumeParentValid implements SlpValidatorFacade {
 				return SlpValid.invalid("Invalid cause currentTxValue is zero or less txId=" + txId);
 			}
 		}
-		for (Input input : inputs) {
+		Map<Input, Utxo> inputsUtxo = new HashMap<>();
+		Map<Integer, Utxo> indexUtxo = new HashMap<>();
+		for (int i = 0, inputsSize = inputs.size(); i < inputsSize; i++) {
+			Input input = inputs.get(i);
 			Utxo utxoFromPrev = utxoRepository.fetchUtxo(input.getTxId(), input.getIndex(), Coin.BCH).blockingGet();
 			if (utxoFromPrev == null) {
 				continue;
 			}
 
+			inputsUtxo.put(input, utxoFromPrev);
+			indexUtxo.put(i, utxoFromPrev);
+		}
+
+		if (indexUtxo.containsKey(0) && indexUtxo.containsKey(1) && tokenType.equals(SlpTokenType.NFT1_CHILD.getType())) {
+			Utxo first = indexUtxo.get(0);
+			Utxo second = indexUtxo.get(1);
+			if (first.getSlpUtxo().isEmpty() && second.getSlpUtxo().isPresent()) {
+				SlpUtxo secondSlp = second.getSlpUtxo().get();
+				if (secondSlp.getTokenType().equals(SlpTokenType.NFT1_GENESIS.getType()) && secondSlp.getAmount().equals(BigDecimal.ONE)) {
+					logger.info("When the first input is change output from a SLP-valid NFT1 parent SEND tx and second second input is an SLP-valid NFT1 parent SEND tx, the NFT1 child GENESIS tx w/ qty=1");
+					return SlpValid.invalid("When the first input is change output from a SLP-valid NFT1 parent SEND tx and second second input is an SLP-valid NFT1 parent SEND tx, the NFT1 child GENESIS tx w/ qty=1");
+				}
+			}
+
+			if (first.getSlpUtxo().isPresent() && second.getSlpUtxo().isPresent()) {
+				SlpUtxo firstSlp = first.getSlpUtxo().get();
+				SlpUtxo secondSlp = second.getSlpUtxo().get();
+				if (firstSlp.hasBaton() && firstSlp.getTokenType().equals(SlpTokenType.NFT1_GENESIS.getType())) {
+					if (secondSlp.getTokenType().equals(SlpTokenType.NFT1_GENESIS.getType()) && secondSlp.getAmount().equals(BigDecimal.ONE)) {
+						logger.info("When the first input is the mint baton from a SLP-valid NFT1 parent MINT tx and second second input is an SLP-valid NFT1 parent MINT tx, the NFT1 child GENESIS tx w/ qty=1");
+						return SlpValid.invalid("When the first input is the mint baton from a SLP-valid NFT1 parent MINT tx and second second input is an SLP-valid NFT1 parent MINT tx, the NFT1 child GENESIS tx w/ qty=1");
+					}
+				}
+			}
+		}
+
+		for (Entry<Input, Utxo> inputUtxo : inputsUtxo.entrySet()) {
+			Utxo utxoFromPrev = inputUtxo.getValue();
 			if (utxoFromPrev.getSlpUtxo().map(SlpUtxo::isGenesis).orElse(false)) {
 				if (utxoFromPrev.getSlpUtxo()
-						.map(SlpUtxo::getAmount).orElse(BigDecimal.ZERO).signum() == 0) {
-					logger.info("PrevTx is genesis but with zero output txId={}", txId);
-					return SlpValid.invalid("PrevTx is genesis but with zero output txId=" + txId);
+						.map(prevSlpUtxo -> prevSlpUtxo.getTokenType().equals(SlpTokenType.NFT1_GENESIS.getType()) && tokenType.equals(SlpTokenType.NFT1_CHILD.getType())).orElse(false)) {
+					if (utxoFromPrev.getSlpUtxo()
+							.map(SlpUtxo::getAmount).orElse(BigDecimal.ZERO).signum() == 0) {
+						logger.info("PrevTx is genesis but with zero output txId={}", txId);
+						return SlpValid.invalid("PrevTx is genesis but with zero output txId=" + txId);
+					}
 				}
 
 				if (utxoFromPrev.getSlpUtxo().get().getTokenType().equals(SlpTokenType.PERMISSIONLESS.getType())) {
@@ -87,7 +125,7 @@ public class GenesisValidatorAssumeParentValid implements SlpValidatorFacade {
 						return SlpValid.invalid("Prev Tx is genesis currentValue has to be more than > 0 txId=" + txId);
 					}
 
-					if (onlySlpUtxo(utxos).count() == 1) {
+					if (onlySlpUtxo(utxos).count() >= 1) {
 						return SlpValid.valid("Has one slp utxo");
 					}
 

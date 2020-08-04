@@ -50,6 +50,7 @@ import com.google.gson.JsonParser;
 
 import io.micrometer.core.instrument.util.IOUtils;
 import io.reactivex.Completable;
+import io.reactivex.Flowable;
 import io.reactivex.Maybe;
 import io.reactivex.Single;
 
@@ -183,6 +184,11 @@ public class SLPDBTestVectorTest {
 
 		@Override
 		public Single<Map<String, BigDecimal>> transactionsForTokenIds(List<String> tokenIds) {
+			return null;
+		}
+
+		@Override
+		public Flowable<IndexerTransaction> fetchTransactions(Integer height, String tokenId, int page, Coin coin) {
 			return null;
 		}
 
