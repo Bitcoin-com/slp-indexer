@@ -28,12 +28,13 @@ public class UtxoHandlerImpl implements UtxoHandler {
 
 	@Override
 	public Single<List<Utxo>> handleUtxos(IndexerTransaction indexerTransaction) {
-		return walletUtxoRepository.saveUtxo(indexerTransaction.getTransaction().getOutputs()
+		List<Utxo> utxos = indexerTransaction.getTransaction().getOutputs()
 				.stream()
 				.filter(e -> e.getSlpUtxo().isPresent())
-				.collect(Collectors.toList()), coin)
+				.collect(Collectors.toList());
+		return walletUtxoRepository.saveUtxo(utxos, coin)
 				.retry(1)
-				.doOnError(er -> logger.error("Could not save utxo", er));
+				.doOnError(er -> logger.error("Could not save utxo txId={}", indexerTransaction.getTransaction().getTxId(), er));
 	}
 
 	@Override

@@ -9,6 +9,7 @@ import com.bitcoin.indexer.blockchain.domain.IndexerTransaction;
 import com.bitcoin.indexer.core.Coin;
 
 import io.reactivex.Completable;
+import io.reactivex.Flowable;
 import io.reactivex.Maybe;
 import io.reactivex.Single;
 
@@ -30,6 +31,7 @@ public interface TransactionRepository {
 
 	Single<Map<String, BigDecimal>> transactionsForTokenIds(List<String> tokenIds);
 
+	Flowable<IndexerTransaction> fetchTransactions(Integer height, String tokenId, int page, Coin coin);
 
 	//Internal use api
 	Single<List<IndexerTransaction>> saveTransaction(List<IndexerTransaction> indexerTransaction);

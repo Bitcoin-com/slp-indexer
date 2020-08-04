@@ -127,6 +127,22 @@ public class UtxoDbType implements Serializable {
 		return isOpReturn;
 	}
 
+	/*private String txId;
+
+	private String address;
+
+	private String scriptPubkey;
+
+	private String amount;
+
+	private boolean confirmations;
+
+	private int utxoIndex;
+
+	private boolean isOpReturn;
+
+	private SlpUtxoType slpUtxoType;*/
+
 	public Document toDocument() {
 		Document update = new Document();
 		update.put("txId", txId);

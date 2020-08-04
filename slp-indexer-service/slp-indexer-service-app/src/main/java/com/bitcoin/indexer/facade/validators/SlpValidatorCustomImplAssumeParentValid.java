@@ -13,8 +13,8 @@ import com.bitcoin.indexer.blockchain.domain.Input;
 import com.bitcoin.indexer.blockchain.domain.Utxo;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid.Valid;
-import com.bitcoin.indexer.core.Coin;
 import com.bitcoin.indexer.repository.TransactionRepository;
+import com.bitcoin.indexer.core.Coin;
 
 public class SlpValidatorCustomImplAssumeParentValid implements SlpValidatorFacade {
 

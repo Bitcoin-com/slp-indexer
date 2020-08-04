@@ -19,6 +19,8 @@ public interface UtxoRepository {
 
 	Single<List<Utxo>> fetchUtxosFromAddress(Address address, Coin coin, boolean useCache, Valid parentValidation);
 
+	Single<List<Utxo>> fetchUtxosFromAddressTokenId(Address address, String tokenId, Coin coin, boolean useCache, Valid parentValidation);
+
 	Single<List<Utxo>> fetchSlpUtxosForAddress(Address address, Coin coin, boolean useCache, Valid parentValidation);
 
 	Maybe<Utxo> fetchUtxo(String txId, int inputIndex, Coin coin);
@@ -30,6 +32,8 @@ public interface UtxoRepository {
 	Single<List<Utxo>> fetchUtxos(List<Pair<String, Integer>> txIdIndexs, Coin coin);
 
 	Single<List<Utxo>> fetchUtxo(List<Input> inputs, Coin coin);
+
+	Single<List<Utxo>> fetchUtxoNoCache(List<Input> inputs, Coin coin);
 
 	Single<List<Utxo>> fetchUtxos(String txId, Coin coin);
 

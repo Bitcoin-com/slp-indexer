@@ -30,8 +30,8 @@ import com.bitcoin.indexer.blockchain.domain.UtxoMinimalData;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid.Valid;
 import com.bitcoin.indexer.blockchain.domain.timers.SystemTimer;
-import com.bitcoin.indexer.repository.db.AllOutputsDbObject;
 import com.bitcoin.indexer.core.Coin;
+import com.bitcoin.indexer.repository.db.AllOutputsDbObject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.mongodb.bulk.BulkWriteResult;
@@ -82,6 +82,18 @@ public class UtxoRepositoryImpl implements UtxoRepository {
 	}
 
 	@Override
+	public Single<List<Utxo>> fetchUtxosFromAddressTokenId(Address address, String tokenId, Coin coin, boolean useCache, Valid parentValidation) {
+		Query query = Query.query(Criteria.where("address").is(address.getAddress()))
+				.addCriteria(Criteria.where("isSpent").is(false))
+				.addCriteria(Criteria.where("slpUtxoType.slpTokenId").is(tokenId))
+				.addCriteria(Criteria.where("slpUtxoType.parentTransactionValid.valid").is(parentValidation.name()));
+		return RxJava2Adapter.fluxToFlowable(reactiveMongoOperations.find(query, AllOutputsDbObject.class)
+				.doOnError(er -> logger.error("Could not fetch address={} slputxos={}", address, er)))
+				.map(AllOutputsDbObject::toDomain)
+				.toList();
+	}
+
+	@Override
 	public Single<List<Utxo>> fetchSlpUtxosForAddress(Address address, Coin coin, boolean useCache, Valid parentValidation) {
 		/*List<Utxo> ifPresent = utxosCache.getIfPresent(address.getAddress());
 		if (ifPresent != null) {
@@ -105,8 +117,8 @@ public class UtxoRepositoryImpl implements UtxoRepository {
 
 		Query query = Query.query(Criteria.where("_id").is(AllOutputsDbObject.keyParser(txId, inputIndex)));
 		return RxJava2Adapter.monoToMaybe(reactiveMongoOperations.findOne(query, AllOutputsDbObject.class)
-				.doOnError(er -> logger.error("Error fetching utxo txId={} index={}", txId, inputIndex, er)))
-				.map(AllOutputsDbObject::toDomain);
+				.map(AllOutputsDbObject::toDomain)
+				.doOnError(er -> logger.error("Error fetching utxo txId={} index={}", txId, inputIndex, er)));
 	}
 
 	@Override
@@ -193,6 +205,15 @@ public class UtxoRepositoryImpl implements UtxoRepository {
 		return RxJava2Adapter.fluxToFlowable(reactiveMongoOperations.find(Query.query(Criteria.where("_id").in(queries)), AllOutputsDbObject.class))
 				.map(AllOutputsDbObject::toDomain)
 				.mergeWith(Flowable.fromIterable(result))
+				.doOnNext(s -> txIdIndexCache.put(s.getTxId(), s))
+				.toList();
+	}
+
+	@Override
+	public Single<List<Utxo>> fetchUtxoNoCache(List<Input> inputs, Coin coin) {
+		List<String> query = inputs.stream().map(input -> AllOutputsDbObject.keyParser(input.getTxId(), input.getIndex())).collect(Collectors.toList());
+		return RxJava2Adapter.fluxToFlowable(reactiveMongoOperations.find(Query.query(Criteria.where("_id").in(query)), AllOutputsDbObject.class))
+				.map(AllOutputsDbObject::toDomain)
 				.doOnNext(s -> txIdIndexCache.put(s.getTxId(), s))
 				.toList();
 	}

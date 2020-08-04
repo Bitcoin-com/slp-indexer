@@ -25,8 +25,8 @@ import org.springframework.data.util.Pair;
 import com.bitcoin.indexer.blockchain.domain.Address;
 import com.bitcoin.indexer.blockchain.domain.IndexerTransaction;
 import com.bitcoin.indexer.blockchain.domain.slp.SlpValid.Valid;
-import com.bitcoin.indexer.repository.db.TransactionDbObject;
 import com.bitcoin.indexer.core.Coin;
+import com.bitcoin.indexer.repository.db.TransactionDbObject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.Lists;
@@ -171,6 +171,19 @@ public class TransactionRepositoryImpl implements TransactionRepository {
 					return result;
 				})
 				.toSingle(Map.of());
+	}
+
+	@Override
+	public Flowable<IndexerTransaction> fetchTransactions(Integer height, String tokenId, int page, Coin coin) {
+		int pageSize = 10;
+		Query query = Query.query(Criteria.where("outputs.slpUtxoType.slpTokenId").is(tokenId)
+				.and("slpValid.valid").is(Valid.VALID.name())
+				.and("blockHeight").is(height)).limit(pageSize).skip(pageSize * (page - 1));
+
+		return RxJava2Adapter.fluxToFlowable(reactiveMongoTemplate.find(query, TransactionDbObject.class)
+				.map(TransactionDbObject::toDomain)
+				.map(IndexerTransaction::create))
+				.doOnError(er -> logger.error("Could not complete request height={}, tokenId={}", height, tokenId));
 	}
 
 	@Override

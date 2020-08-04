@@ -34,6 +34,7 @@ import com.bitcoin.indexer.repository.TransactionRepository;
 import com.bitcoin.indexer.core.Coin;
 
 import io.reactivex.Completable;
+import io.reactivex.Flowable;
 import io.reactivex.Maybe;
 import io.reactivex.Single;
 
@@ -88,6 +89,11 @@ public class SlpValidatorCustomImplTest {
 
 		@Override
 		public Single<Map<String, BigDecimal>> transactionsForTokenIds(List<String> tokenIds) {
+			return null;
+		}
+
+		@Override
+		public Flowable<IndexerTransaction> fetchTransactions(Integer height, String tokenId, int page, Coin coin) {
 			return null;
 		}
 
