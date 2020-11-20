@@ -66,9 +66,9 @@
 
 
         <dependency>
-            <groupId>org.bitcoinj</groupId>
+            <groupId>cash.bitcoinj</groupId>
             <artifactId>bitcoinj-core</artifactId>
-            <version>0.15</version>
+            <version>0.17</version>
 
             <exclusions>
                 <exclusion>
@@ -126,11 +126,11 @@
                         <id>bitcoinj-bch</id>
                         <phase>clean</phase>
                         <configuration>
-                            <file>${project.basedir}/src/bitcoinj/bitcoinj-core-0.15.jar</file>
+                            <file>${project.basedir}/src/bitcoinj/bitcoinj-core-0.17.jar</file>
                             <repositoryLayout>default</repositoryLayout>
-                            <groupId>org.bitcoinj</groupId>
+                            <groupId>cash.bitcoinj</groupId>
                             <artifactId>bitcoinj-core</artifactId>
-                            <version>0.15</version>
+                            <version>0.17</version>
                             <packaging>jar</packaging>
                             <generatePom>true</generatePom>
                         </configuration>
