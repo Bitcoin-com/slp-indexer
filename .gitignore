@@ -12,8 +12,8 @@
 
 # Package Files 
 *.jar
-!slp-indexer-service/slp-indexer-service-domain/src/bitcoinj/bitcoinj-core-0.15.jar
-!slp-indexer-api-service/slp-indexer-api-service-app/src/bitcoinj/bitcoinj-core-0.15.jar
+!slp-indexer-service/slp-indexer-service-domain/src/bitcoinj/bitcoinj-core-0.17.jar
+!slp-indexer-api-service/slp-indexer-api-service-app/src/bitcoinj/bitcoinj-core-0.17.jar
 
 *.war
 *.nar
