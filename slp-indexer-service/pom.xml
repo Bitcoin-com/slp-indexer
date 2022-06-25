@@ -29,7 +29,7 @@
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 		<java.version>11</java.version>
 		<spring.cloud.netflix>2.2.2.RELEASE</spring.cloud.netflix>
-		<spring.boot.starter.version>2.2.5.RELEASE</spring.boot.starter.version>
+		<spring.boot.starter.version>3.3.5</spring.boot.starter.version>
 
 		<java.version>11</java.version>
 		<maven.compiler.source>${java.version}</maven.compiler.source>
